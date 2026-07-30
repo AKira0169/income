@@ -1687,7 +1687,8 @@
     return el('header', { class: 'topbar' }, [
       el('div', { class: 'topbar-inner' }, [
         el('div', { class: 'brand' }, [
-          el('b', { text: 'Income Tracker' })
+          el('b', { text: 'Income Tracker' }),
+          root.__BUILD__ ? el('span', { title: 'The build you are running', text: root.__BUILD__ }) : null
         ]),
         el('div', { class: 'period-nav' }, [
           el('button', { class: 'quiet', 'aria-label': 'Previous month', text: '‹', onclick: function () { view.period = S.shiftPeriod(view.period, -1); render(); } }),

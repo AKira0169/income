@@ -18,9 +18,17 @@ const ORDER = ['xlsx.js', 'store.js', 'sqlite.js', 'gold.js', 'datepicker.js', '
 const wasmB64 = readFileSync(vendor('sql-wasm.wasm')).toString('base64');
 const sqlLoader = readFileSync(vendor('sql-wasm.js'), 'utf8');
 
+/* Stamped into the page and shown beside the title. A browser holding an old
+   copy of a file:// page is otherwise indistinguishable from a build that did
+   not happen, and the two are fixed in completely different ways. */
+const stamp = new Date().toLocaleString('en-GB', {
+  day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+}).replace(',', ' ·');
+
 const js = [
   '/* ---- sql.js 1.13.0 (MIT) — SQLite compiled to WebAssembly ---- */',
   guard(sqlLoader),
+  `globalThis.__BUILD__ = ${JSON.stringify(stamp)};`,
   '/* ---- sqlite wasm binary (base64) ---- */',
   `globalThis.__SQL_WASM_B64__ = "${wasmB64}";`,
   ...ORDER.map((name) => `/* ---- ${name} ---- */\n${guard(src(name))}`)
@@ -35,4 +43,5 @@ writeFileSync(out, html, 'utf8');
 
 const mb = (Buffer.byteLength(html, 'utf8') / 1024 / 1024).toFixed(2);
 console.log(`built ${out} (${mb} MB, no external dependencies)`);
+console.log(`  stamped: ${stamp} — shown beside the title, so a stale tab is obvious`);
 console.log(`  sqlite wasm: ${(wasmB64.length / 1024 / 1024).toFixed(2)} MB of that, base64-encoded`);
