@@ -6,14 +6,10 @@ import { periodLabel } from '../store.ts';
 import { goPeriod, period as routePeriod } from '../state/route.ts';
 import type { IsoDate } from '../domain/types.ts';
 
-const TOAST_MS = 3000;
-
-export function toast(message: string): void {
-  document.querySelector('.toast')?.remove();
-  const node = el('div', { class: 'toast', role: 'status', text: message });
-  document.body.appendChild(node);
-  setTimeout(() => node.remove(), TOAST_MS);
-}
+/* The toast itself is a component now; this is the door both halves of the app
+   go through while the port is in progress. */
+export { toast } from './components/Toast.tsx';
+import { toast } from './components/Toast.tsx';
 
 export function download(data: BlobPart, filename: string, mime: string): void {
   const url = URL.createObjectURL(new Blob([data], { type: mime }));

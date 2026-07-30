@@ -77,7 +77,7 @@ function movementRow(t: SavingsTx): HTMLTableRowElement {
     el('td', { class: 'num', text: `${out ? '−' : '+'}${money(t.amount)}` }),
     el('td', { class: 'truncate muted', title: t.notes || '', text: t.notes || '' }),
     rowActions(
-      () => openEditor('Edit movement', savingsFields(), t, (d) => {
+      () => openEditor('Edit movement', savingsFields(state), t, (d) => {
         if (d.direction !== 'transfer') d.fromAccountId = '';
         upsert('savingsTx', d);
       }, (dialog) => wireMovementForm(dialog)),
@@ -101,7 +101,7 @@ export function renderAccounts(): HTMLElement {
   let moveSection: HTMLElement | null = null;
   if (accounts.length) {
     moveSection = addSection('add-saving', 'Movements between accounts', 'Record movement',
-      savingsFields(), (data) => {
+      savingsFields(state), (data) => {
         if (data.direction !== 'transfer') data.fromAccountId = '';
         else if (data.fromAccountId === data.accountId) {
           toast('A transfer needs two different accounts');

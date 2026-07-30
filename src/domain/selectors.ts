@@ -10,9 +10,9 @@ import { byId } from './records.ts';
 import { billIsOverdue } from './recurring.ts';
 import { currentPeriod, isoOf, periodOf, shiftPeriod } from './period.ts';
 import type {
-  Account, AccountFlows, AppState, Bill, Category, CategoryTotal, Cents, Id,
-  IncomeEntry, IsoDate, MonthSummary, Period, Purchase, SavingsMovement,
-  SavingsTx, UpcomingBill
+  Account, AccountFlows, AppState, Bill, Category, CategoryTotal, Cents,
+  CollectionKey, Id, IncomeEntry, IsoDate, MonthSummary, Period, Purchase,
+  SavingsMovement, SavingsTx, UpcomingBill
 } from './types.ts';
 
 export function sum<T>(list: readonly T[], pick: (item: T) => number): Cents;
@@ -45,6 +45,23 @@ export function isSavingsAccount(account: Account | null | undefined): boolean {
     screens and the workbook, which is why it lives here rather than in either. */
 export function accountName(state: AppState, id: Id | '' | null | undefined): string {
   return byId(state, 'accounts', id)?.name ?? '';
+}
+
+/** The account you last used for this kind of record. Nearly every entry goes
+    to the same place as the one before it, so this is the right default. */
+export function lastAccountFor(state: AppState, collection: CollectionKey): Id | '' {
+  const list = state[collection] as ReadonlyArray<{ accountId?: Id | '' }>;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const id = list[i]?.accountId;
+    if (id && byId(state, 'accounts', id)) return id;
+  }
+  return state.accounts[0]?.id ?? '';
+}
+
+/** Where money put aside tends to go: the first savings-type account. */
+export function defaultSavingsAccount(state: AppState): Id | '' {
+  const pot = state.accounts.find(isSavingsAccount) ?? state.accounts[0];
+  return pot?.id ?? '';
 }
 
 /* Every flow that touches an account, in the order money actually moves. A bill

@@ -6,36 +6,19 @@
 import { el } from '../dom.ts';
 import * as DatePicker from '../datepicker.ts';
 import {
-  byId, catchUp, isSavingsAccount, linkGeneratedTo, monthlyEquivalent, parseMoney,
-  plural, state, sum, toMajor, upsert
+  catchUp, linkGeneratedTo, monthlyEquivalent, parseMoney, plural, state, sum,
+  toMajor, upsert
 } from '../store.ts';
 import type { MonthlyEquivalentInput } from '../store.ts';
-import type { CollectionKey, Id } from '../domain/types.ts';
 import { toast } from './feedback.ts';
+import type { FieldSpec } from './fields.ts';
 import { money } from './format.ts';
 import { table } from './tables.ts';
 import type { Header } from './tables.ts';
 import { isOpen, render, toggle, view } from './view.ts';
 
-export type FieldType = 'text' | 'select' | 'account' | 'date' | 'money' | 'number' | 'checkbox';
-
-export interface FieldSpec {
-  key: string;
-  label: string;
-  /** Defaults to a plain text input. */
-  type?: FieldType;
-  required?: boolean;
-  /** Spans both columns of the form grid. */
-  wide?: boolean;
-  placeholder?: string;
-  options?: readonly string[];
-  /** Display labels for option values, e.g. `21` -> `21k — usual here`. */
-  labels?: Readonly<Record<string, string>>;
-  /** A literal, or a function evaluated when the form is built. */
-  def?: unknown;
-  min?: number;
-  step?: string | number;
-}
+export type { FieldSpec, FieldType } from './fields.ts';
+export { defaultSavingsAccount, lastAccountFor } from './form-defaults.ts';
 
 export type FormData = Record<string, unknown>;
 
@@ -69,24 +52,8 @@ function accountOptions(spec: FieldSpec): Option[] {
   return list;
 }
 
-/** The account you last used for this kind of record. Nearly every entry goes
-    to the same place as the one before it, so this is the right default. */
-export function lastAccountFor(collection: CollectionKey): Id | '' {
-  const list = state[collection] as ReadonlyArray<{ accountId?: Id | '' }>;
-  for (let i = list.length - 1; i >= 0; i--) {
-    const id = list[i]?.accountId;
-    if (id && byId('accounts', id)) return id;
-  }
-  return state.accounts[0]?.id ?? '';
-}
-
-/** Where money put aside tends to go: the first savings-type account. */
-export function defaultSavingsAccount(): Id | '' {
-  const pot = state.accounts.find(isSavingsAccount) ?? state.accounts[0];
-  return pot?.id ?? '';
-}
-
-const resolveDefault = (def: unknown): unknown => (typeof def === 'function' ? def() : def);
+const resolveDefault = (def: unknown): unknown =>
+  (typeof def === 'function' ? (def as (s: typeof state) => unknown)(state) : def);
 
 let fieldSeq = 0;
 const nextFieldId = (key: string): string => `f_${key}_${++fieldSeq}`;

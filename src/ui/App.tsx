@@ -9,7 +9,7 @@ import { plural } from '../domain/money.ts';
 import { app, bootError, booting, storageOk } from '../state/app.ts';
 import { period as routePeriod, tab as routeTab } from '../state/route.ts';
 import type { TabId } from '../state/route.ts';
-import { toast } from './feedback.ts';
+import { Toast, toast } from './components/Toast.tsx';
 import { LegacyTab } from './LegacyTab.tsx';
 import { Topbar } from './Topbar.tsx';
 import { view } from './view.ts';
@@ -104,6 +104,7 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
         <StorageNotice />
         <LegacyTab key={tabId} render={LEGACY[tabId]} />
       </main>
+      <Toast />
     </>
   );
 }
