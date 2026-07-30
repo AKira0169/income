@@ -9,7 +9,7 @@
     "build": "node build.mjs",
     "dev": "node dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "test": "pnpm typecheck && node test/roundtrip.ts && node test/export.ts",
+    "test": "pnpm typecheck && node test/domain.ts && node test/roundtrip.ts && node test/export.ts",
     "test:browser": "pnpm build && node test/browser.mjs",
     "test:full": "pnpm test && pnpm test:browser"
   },

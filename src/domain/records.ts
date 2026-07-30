@@ -11,7 +11,7 @@
 import { COLLECTION_KEYS, ID_PREFIX, SCHEMA_VERSION } from './catalog.ts';
 import { currentPeriod, periodOf } from './period.ts';
 import type {
-  AppState, Bill, BillStatus, CollectionKey, Id, Period, RecordOf
+  AppState, Bill, BillStatus, CollectionKey, Id, Period, RecordOf, Settings
 } from './types.ts';
 
 export function blankState(): AppState {
@@ -101,17 +101,32 @@ export function upsert<K extends CollectionKey>(
   const list = state[collection] as RecordOf<K>[] | undefined;
   if (!list) throw new Error(`unknown collection: ${collection}`);
 
-  if (record.id) {
-    const idx = list.findIndex((r) => r.id === record.id);
-    if (idx !== -1) {
-      const merged = { ...list[idx], ...record } as RecordOf<K>;
-      const next = list.slice();
-      next[idx] = merged;
-      return { state: withCollection(state, collection, next), record: merged };
-    }
-  }
-  const created = { ...record, id: record.id ?? uid(ID_PREFIX[collection]) } as RecordOf<K>;
-  return { state: withCollection(state, collection, [...list, created]), record: created };
+  const idx = record.id ? list.findIndex((r) => r.id === record.id) : -1;
+  const existing = idx === -1 ? null : list[idx]!;
+  const merged = {
+    ...existing,
+    ...record,
+    id: record.id ?? uid(ID_PREFIX[collection])
+  } as RecordOf<K>;
+
+  /* Bills are the one record with fields derived from other fields, and this is
+     the only way in. Leaving it to the caller meant a missed normalizeBill()
+     filed a bill under the month of its *old* due date, or left one with a paid
+     date still counted as outstanding — a wrong figure with nothing to see. */
+  const saved = (collection === 'bills'
+    ? normalizeBill(merged as Bill, (existing as Bill | null)?.period)
+    : merged) as RecordOf<K>;
+
+  const next = list.slice();
+  if (idx === -1) next.push(saved);
+  else next[idx] = saved;
+  return { state: withCollection(state, collection, next), record: saved };
+}
+
+/** Settings are replaced as a whole object, so a write is one state change
+    rather than one per field — and so it can be seen. */
+export function updateSettings(state: AppState, patch: Partial<Settings>): AppState {
+  return { ...state, settings: { ...state.settings, ...patch } };
 }
 
 export function remove(state: AppState, collection: CollectionKey, id: Id): AppState {

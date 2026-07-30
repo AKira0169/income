@@ -74,6 +74,7 @@ export function hydrate(loaded: unknown, available?: boolean): AppState {
 }
 
 export function save(): void {
+  pendingSave = false;
   try {
     const result = persistence.save(state);
     if (typeof result === 'object' && typeof result.then === 'function') {
@@ -87,10 +88,22 @@ export function save(): void {
   }
 }
 
+/* Every save rewrites the whole database, so a run of writes in one turn — save
+   a recurring bill, back-link its past entries, then catch up the months since
+   — should cost one write, not three. A microtask always runs before the
+   browser can paint or the tab can close, so nothing is at risk in the gap. */
+let pendingSave = false;
+
+export function scheduleSave(): void {
+  if (pendingSave) return;
+  pendingSave = true;
+  queueMicrotask(() => { if (pendingSave) save(); });
+}
+
 /** Adopt a new state and write it through. The one place `state` is replaced. */
 function commit(next: AppState): void {
   state = next;
-  save();
+  scheduleSave();
 }
 
 /* ------------------------------------------------------- writes (old arity) */
@@ -105,6 +118,10 @@ export function upsert<K extends CollectionKey>(
 
 export function remove(collection: CollectionKey, id: Id): void {
   commit(Records.remove(state, collection, id));
+}
+
+export function updateSettings(patch: Partial<Settings>): void {
+  commit(Records.updateSettings(state, patch));
 }
 
 export function replaceState(next: unknown): void { commit(Records.migrate(next)); }

@@ -4,7 +4,7 @@ import { el } from '../../dom.ts';
 import { isBusy, refresh } from '../../data/gold-price.ts';
 import {
   GOLD_KARATS, goldHoldings, goldIn, goldPricePerGram, goldSummary, latestGoldPrice,
-  parseMoney, periodLabel, plural, remove, save, sortByDateDesc, state, toMajor, upsert
+  parseMoney, periodLabel, plural, remove, sortByDateDesc, state, toMajor, updateSettings, upsert
 } from '../../store.ts';
 import type { GoldEntry } from '../../domain/types.ts';
 import { confirmDelete, followDate, toast } from '../feedback.ts';
@@ -83,10 +83,11 @@ function priceSettings(): HTMLElement {
       el('button', {
         class: 'primary', text: 'Save price settings',
         onclick: () => {
-          settings.goldSync = sync.checked;
-          settings.goldPremium = Number(premium.value) || 0;
-          settings.goldManualPrice = parseMoney(manual.value);
-          save();
+          updateSettings({
+            goldSync: sync.checked,
+            goldPremium: Number(premium.value) || 0,
+            goldManualPrice: parseMoney(manual.value)
+          });
           render();
           toast('Price settings saved');
         }

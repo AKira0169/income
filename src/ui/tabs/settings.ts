@@ -3,7 +3,7 @@
 import { el } from '../../dom.ts';
 import { getBackend, exportBytes } from '../../data/sqlite.ts';
 import {
-  catchUp, clearAll, exportJSON, importJSON, plural, save, state, todayISO
+  catchUp, clearAll, exportJSON, importJSON, plural, state, todayISO, updateSettings
 } from '../../store.ts';
 import { download, toast } from '../feedback.ts';
 import { isOpen, render, toggle } from '../view.ts';
@@ -69,12 +69,13 @@ export function renderSettings(): HTMLElement {
           el('button', {
             class: 'primary', text: 'Save settings',
             onclick: () => {
-              settings.currencySymbol = symbol.value || '';
-              settings.currencyCode = code.value || '';
-              settings.locale = locale.value || 'en-US';
-              settings.savingsGoalRate = Number(goal.value) || 0;
-              settings.autoGenerate = auto.checked;
-              save();
+              updateSettings({
+                currencySymbol: symbol.value || '',
+                currencyCode: code.value || '',
+                locale: locale.value || 'en-US',
+                savingsGoalRate: Number(goal.value) || 0,
+                autoGenerate: auto.checked
+              });
               /* Switching it back on should catch up straight away rather than
                  waiting for the next time the app is opened. */
               const added = catchUp();

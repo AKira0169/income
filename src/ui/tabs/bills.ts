@@ -7,7 +7,7 @@
 import { el } from '../../dom.ts';
 import {
   billIsOverdue, billsIn, dueDateFor, generateBills, linkGeneratedTo, METERED,
-  monthlyEquivalent, normalizeBill, parseMoney, periodLabel, plural, remove,
+  monthlyEquivalent, parseMoney, periodLabel, plural, remove,
   state, sum, toMajor, todayISO, upsert
 } from '../../store.ts';
 import type { Bill, BillTemplate } from '../../domain/types.ts';
@@ -89,7 +89,7 @@ function billRow(b: Bill): HTMLTableRowElement {
       el('button', {
         class: 'quiet small', text: 'Edit',
         onclick: () => openEditor('Edit bill', FIELDS.bill, b, (d) => {
-          upsert('bills', normalizeBill(d as Partial<Bill>, b.period));
+          upsert('bills', d as Partial<Bill>);
         })
       }),
       el('button', {
@@ -171,8 +171,9 @@ export function renderBills(): HTMLElement {
             units: null, unitRate: null, status: 'unpaid', paidDate: '', method: '', notes: ''
           }, (d) => {
             // The literal above carries no id, so upsert() inserts rather than
-            // updating — this is the "Add bill" path.
-            upsert('bills', normalizeBill(d as Partial<Bill>, period));
+            // updating — this is the "Add bill" path. Period and status are
+            // derived from the dates inside upsert(), not passed in.
+            upsert('bills', d as Partial<Bill>);
           })
         })
       ]),
