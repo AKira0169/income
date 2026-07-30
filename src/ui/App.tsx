@@ -18,25 +18,25 @@ import type { BootOutcome } from '../state/app.ts';
 import { Accounts } from './tabs/Accounts.tsx';
 import { Income } from './tabs/Income.tsx';
 import { Purchases } from './tabs/Purchases.tsx';
+import { Settings } from './tabs/Settings.tsx';
 
 import { renderBills } from './tabs/bills.ts';
 import { renderDashboard } from './tabs/dashboard.ts';
 import { renderGold } from './tabs/gold.ts';
-import { renderSettings } from './tabs/settings.ts';
 
 /** Tabs that are components. Anything not here is still hand-built and goes
     through <LegacyTab/>; this list is the whole record of how far the port is. */
 const PORTED: Partial<Record<TabId, () => preact.JSX.Element>> = {
   income: Income,
   purchases: Purchases,
-  savings: Accounts
+  savings: Accounts,
+  settings: Settings
 };
 
 const LEGACY: Partial<Record<TabId, () => HTMLElement>> = {
   dashboard: renderDashboard,
   bills: renderBills,
-  gold: renderGold,
-  settings: renderSettings
+  gold: renderGold
 };
 
 function Splash({ title, lines }: { title: string; lines: readonly string[] }) {
