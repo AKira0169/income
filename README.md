@@ -2,7 +2,12 @@
 
 A personal money tracker that runs entirely in your browser, stores everything in
 a real SQLite database, and exports a real Excel workbook. One file, no install,
-no account, no internet connection, and nothing leaves your computer.
+no account, and nothing leaves your computer.
+
+It works fully offline. The one exception is the gold price, which is fetched
+once a day if you keep gold — two small public endpoints, no key, no account, and
+nothing sent but the request itself. Switch it off under **Gold → Price settings**
+and the app never touches the network at all.
 
 ## Running it
 
@@ -39,8 +44,59 @@ if you move the folder — the shortcut stores absolute paths.
 | **Income** | Set your salary and any other regular payment up **once**; each new month it is entered for you. One-off money — freelance, refunds, gifts — you add as it arrives. |
 | **Bills & Utilities** | Set up each recurring bill once (electricity, water, gas, internet, mobile, rent, council tax, insurance, subscriptions…) and every month fills itself in, pre-filled with the typical amount, ready for you to correct to what you were actually charged. |
 | **Purchases** | One-off spending — groceries, fuel, clothes, electronics, travel. |
-| **Savings** | Accounts and pots with optional targets, plus every deposit and withdrawal. Balances update automatically. |
+| **Accounts** | Every place money sits: the card the salary lands on, the one you save into, cash, pots with targets. Each card shows where its balance came from — income in, purchases and paid bills out, transfers between them. |
+| **Gold** | Grams held by karat, valued against the live Egyptian price, with what you paid beside what it is worth now. |
 | **Settings** | Currency, number format, savings goal, backup/restore, erase. |
+
+### Every list has a history
+
+Each list opens on the month in the picker, because that is the month you are
+working on. The **All time** switch in its heading turns the same list into the
+full history — every entry you have ever made, broken by month with a total on
+each heading. It is there on income, bills, purchases, movements and gold.
+
+An entry dated outside the month on screen is not lost, either: save it and the
+app follows it to its own month rather than letting it disappear.
+
+### Accounts hold the money
+
+An account is not only a savings pot — it is anywhere money sits. Add the card
+your salary is paid onto and the account you save into, then point each entry at
+one:
+
+- **Income** says which account it was *paid into*
+- **Bills** and **purchases** say which account they were *paid from*
+- **Movements** move money *between* two accounts, or in and out from elsewhere
+- **Gold** comes out of the account that paid for it
+
+A balance is then arithmetic you can check: opening, plus income, plus what was
+moved in, less purchases, paid bills, gold and what was moved out. A bill that is
+not yet paid does not come off the balance — it is a commitment, not a
+withdrawal, and taking it off early would make the figure disagree with the bank.
+
+Set the account once on a *recurring* income or bill and every month it generates
+carries it too.
+
+### Gold
+
+Gold is quoted worldwide in dollars per troy ounce. Once a day the app fetches
+that figure and the pound rate, divides by 31.1034768 and multiplies out — which
+gives the **bourse** price, a little under what a shop quotes. A premium closes
+that gap; it starts at 2%, which is what the Cairo boards were running over spot
+when this was calibrated. If it ever drifts, type the shop's own price in and
+nothing is fetched at all.
+
+Karat is a fraction of pure: 21k is 21 parts in 24, so 87.5% of the 24k price.
+Every reading is kept, so the price history is a series you can chart or export
+even when you are offline.
+
+### The date fields
+
+The browser's own date input is not used anywhere. Type the date however you
+write it — `5/8`, `5-8-26`, `5.8.2026`, `05082026`, `2026-08-05`, or just `5` for
+the fifth of the month already in the box — or press the calendar and pick.
+Arrow keys move a day, Page Up and Down move a month, Enter picks. The week
+starts on Saturday.
 
 ### Set it once — the part worth understanding
 
@@ -80,13 +136,16 @@ what your recurring commitments really come to.
 ### Excel export
 
 **Export to Excel** produces an `.xlsx` for the current month, the current year,
-or everything. It contains eleven sheets:
+or everything. It contains twelve sheets:
 
 - **Summary** — headline totals, your recurring set-up per month, savings rate,
-  and where the money went
-- **Income**, **Recurring Income**, **Bills**, **Recurring Bills**, **Purchases**
+  gold, and where the money went
+- **Income**, **Recurring Income**, **Bills**, **Recurring Bills**, **Purchases** —
+  each row saying which account it moved
 - **Utilities & Meters** — consumption and implied cost per unit
-- **Savings Accounts**, **Savings Transactions**
+- **Savings Accounts** — every balance broken into the flows that built it
+- **Savings Transactions**
+- **Gold** — what was bought and sold, what is held, and the daily price series
 - **Monthly Breakdown** — month-by-month with totals and monthly averages
 - **Category Breakdown** — every category with its share of the total
 
@@ -98,7 +157,7 @@ sheets have filters and frozen headers.
 
 In a real **SQLite database**, running inside the page via WebAssembly. Tables:
 `income`, `incomeTemplates`, `bills`, `billTemplates`, `purchases`, `accounts`,
-`savingsTx`, `settings`. Money is stored as whole cents (`INTEGER`), so totals
+`savingsTx`, `gold`, `goldPrices`, `settings`. Money is stored as whole cents (`INTEGER`), so totals
 never drift.
 
 The database is held in the browser's IndexedDB — not as a file on disk you can

@@ -29,9 +29,22 @@
 
   var PAYMENT_METHODS = ['Bank Transfer', 'Direct Debit', 'Card', 'Cash', 'Standing Order', 'Mobile Money', 'Cheque', 'Other'];
 
-  var ACCOUNT_TYPES = ['Savings', 'Emergency Fund', 'Fixed Deposit', 'Investment', 'Pension', 'Cash', 'Goal Pot', 'Other'];
+  /* Accounts are every place money sits, not only the pots you save into: the
+     card the salary lands on is an account too, and every income, purchase and
+     paid bill moves a balance somewhere. */
+  var ACCOUNT_TYPES = ['Current Account', 'Card / Wallet', 'Savings', 'Emergency Fund',
+    'Fixed Deposit', 'Investment', 'Pension', 'Cash', 'Goal Pot', 'Other'];
+
+  /* Which of those count as money put aside. Moving pay from a card into one of
+     these is saving; moving it back out is not. */
+  var SAVINGS_TYPES = ['Savings', 'Emergency Fund', 'Fixed Deposit', 'Investment', 'Pension', 'Goal Pot'];
 
   var FREQUENCIES = ['Monthly', 'Bi-monthly', 'Quarterly', 'Half-yearly', 'Yearly', 'One-off'];
+
+  /* Karats sold by weight in Egypt. 24 is pure; the rest are that fraction of
+     pure gold, which is exactly how a jeweller prices them. */
+  var GOLD_KARATS = [24, 22, 21, 18, 14];
+  var GRAMS_PER_OZ = 31.1034768;   // troy ounce, the unit gold is quoted in
 
   /* How many times a year each frequency bills — used to put bills of different
      cadences on a comparable monthly footing. */
@@ -167,7 +180,17 @@
         currencyCode: 'EGP',
         locale: 'en-EG',
         savingsGoalRate: 20,
-        autoGenerate: true
+        autoGenerate: true,
+        /* Gold. The price is fetched from the world spot market and converted
+           to pounds; goldPremium is the margin an Egyptian shop adds on top,
+           and goldManualPrice overrides the lot with a figure you typed in.
+
+           2% is not a guess: on 30 July 2026 the spot conversion gave E£6,653.79
+           a gram for 24k while the shops were quoting E£6,775 — 1.82% over. The
+           gap moves, which is why it is a setting and not a constant. */
+        goldSync: true,
+        goldPremium: 2,
+        goldManualPrice: 0
       },
       income: [],
       incomeTemplates: [],
@@ -175,7 +198,9 @@
       bills: [],
       purchases: [],
       accounts: [],
-      savingsTx: []
+      savingsTx: [],
+      gold: [],
+      goldPrices: []
     };
   }
 
@@ -199,7 +224,8 @@
     return (prefix || 'id') + '_' + rnd;
   }
 
-  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
+  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases',
+    'accounts', 'savingsTx', 'gold', 'goldPrices'];
 
   function migrate(loaded) {
     var base = blankState();
@@ -255,7 +281,7 @@
 
   var COLLECTIONS = {
     income: 'inc', incomeTemplates: 'itp', billTemplates: 'tpl', bills: 'bil',
-    purchases: 'pur', accounts: 'acc', savingsTx: 'sav'
+    purchases: 'pur', accounts: 'acc', savingsTx: 'sav', gold: 'gld', goldPrices: 'gpr'
   };
 
   function upsert(collection, record) {
@@ -273,9 +299,12 @@
 
   function remove(collection, id) {
     state[collection] = state[collection].filter(function (r) { return r.id !== id; });
-    // Removing an account takes its transactions with it.
+    // Removing an account takes its movements with it, including transfers it
+    // was the source of — those are its movements too.
     if (collection === 'accounts') {
-      state.savingsTx = state.savingsTx.filter(function (t) { return t.accountId !== id; });
+      state.savingsTx = state.savingsTx.filter(function (t) {
+        return t.accountId !== id && t.fromAccountId !== id;
+      });
     }
     // Deleting a recurring definition keeps the entries it already produced,
     // orphaned rather than removed — that money really did move.
@@ -309,6 +338,7 @@
       period: period,
       dueDate: dueDateFor(period, tpl.dueDay),
       amount: tpl.expected || 0,
+      accountId: tpl.accountId || '',
       units: null,
       unitRate: null,
       status: 'unpaid',
@@ -332,10 +362,33 @@
       source: tpl.source,
       category: tpl.category,
       amount: tpl.expected || 0,
+      accountId: tpl.accountId || '',
       method: tpl.method || '',
       notes: tpl.notes || ''
     });
     return 1;
+  }
+
+  /* Pointing a recurring definition at an account takes the entries it has
+     already produced with it. Without this, setting your salary to land on a
+     card leaves every past salary counting towards no balance at all — which
+     reads as a broken figure rather than as missing data. Entries already
+     linked somewhere else are left exactly as they are. */
+  function linkGeneratedTo(collection, template) {
+    if (!template || !template.id || !template.accountId) return 0;
+    var records = collection === 'incomeTemplates' ? state.income
+      : collection === 'billTemplates' ? state.bills : null;
+    if (!records) return 0;
+
+    var linked = 0;
+    records.forEach(function (r) {
+      if (r.templateId === template.id && !r.accountId) {
+        r.accountId = template.accountId;
+        linked++;
+      }
+    });
+    if (linked) save();
+    return linked;
   }
 
   /* Fills `period` from every active template. Used by the manual buttons, so
@@ -438,17 +491,198 @@
     return state.savingsTx.filter(function (r) { return periodOf(r.date) === period; });
   }
 
-  function accountBalance(accountId) {
+  function isSavingsAccount(account) {
+    return !!account && SAVINGS_TYPES.indexOf(account.type) !== -1;
+  }
+
+  /* Every flow that touches an account, in the order money actually moves.
+     A bill only leaves the account when it is paid — an unpaid bill is a
+     commitment, not a withdrawal, and deducting it would make the balance
+     disagree with the bank. */
+  function accountFlows(accountId) {
+    var flows = { opening: 0, income: 0, purchases: 0, bills: 0, savedIn: 0, savedOut: 0, gold: 0 };
     var account = byId('accounts', accountId);
-    if (!account) return 0;
-    return state.savingsTx.reduce(function (total, tx) {
-      if (tx.accountId !== accountId) return total;
-      return total + (tx.direction === 'out' ? -tx.amount : tx.amount);
-    }, account.opening || 0);
+    if (!account) return flows;
+    flows.opening = account.opening || 0;
+
+    state.income.forEach(function (r) {
+      if (r.accountId === accountId) flows.income += r.amount || 0;
+    });
+    state.purchases.forEach(function (r) {
+      if (r.accountId === accountId) flows.purchases += r.amount || 0;
+    });
+    state.bills.forEach(function (b) {
+      if (b.accountId === accountId && b.status === 'paid') flows.bills += b.amount || 0;
+    });
+    // Buying gold takes money out of an account and turns it into metal; selling
+    // puts it back. Net, so a positive figure means gold has cost this account.
+    state.gold.forEach(function (r) {
+      if (r.accountId !== accountId) return;
+      flows.gold += (r.direction === 'sell' ? -(r.amount || 0) : (r.amount || 0));
+    });
+    state.savingsTx.forEach(function (tx) {
+      var amount = tx.amount || 0;
+      if (tx.direction === 'transfer') {
+        if (tx.accountId === accountId) flows.savedIn += amount;
+        if (tx.fromAccountId === accountId) flows.savedOut += amount;
+        return;
+      }
+      if (tx.accountId !== accountId) return;
+      if (tx.direction === 'out') flows.savedOut += amount;
+      else flows.savedIn += amount;
+    });
+    return flows;
+  }
+
+  function accountBalance(accountId) {
+    var f = accountFlows(accountId);
+    return f.opening + f.income + f.savedIn - f.purchases - f.bills - f.savedOut - f.gold;
   }
 
   function totalSavings() {
     return sum(state.accounts, function (a) { return accountBalance(a.id); });
+  }
+
+  /* Only the pots. The current account holding this month's salary is a balance,
+     not savings, and mixing the two flatters the figure. */
+  function savingsBalance() {
+    return sum(state.accounts.filter(isSavingsAccount), function (a) { return accountBalance(a.id); });
+  }
+
+  /* Which way a movement pushes money relative to your savings. A transfer
+     between two pots, or between two spending accounts, is neither. */
+  function savingsMovement(tx) {
+    var amount = tx.amount || 0;
+    var to = byId('accounts', tx.accountId);
+    if (tx.direction === 'transfer') {
+      var from = byId('accounts', tx.fromAccountId);
+      var into = isSavingsAccount(to), outOf = isSavingsAccount(from);
+      if (into && !outOf) return { in: amount, out: 0 };
+      if (outOf && !into) return { in: 0, out: amount };
+      return { in: 0, out: 0 };
+    }
+    if (!isSavingsAccount(to)) return { in: 0, out: 0 };
+    return tx.direction === 'out' ? { in: 0, out: amount } : { in: amount, out: 0 };
+  }
+
+  /* ---------------------------------------------------------------- gold */
+
+  function goldIn(period) {
+    return state.gold.filter(function (r) { return periodOf(r.date) === period; });
+  }
+
+  /* What fraction of a gram is actually gold. 21k is 21 parts in 24. */
+  function goldPurity(karat) {
+    var k = Number(karat);
+    return (isFinite(k) && k > 0 ? k : 24) / 24;
+  }
+
+  /* The most recent daily snapshot, or null if the price has never synced. */
+  function latestGoldPrice() {
+    var latest = null;
+    state.goldPrices.forEach(function (p) {
+      if (!latest || String(p.date) > String(latest.date)) latest = p;
+    });
+    return latest;
+  }
+
+  /* Price of one gram, in minor units.
+     A price you typed in yourself is taken exactly as given — you read it off a
+     shop's board, so it already includes their margin. A synced price is the
+     world spot rate, which is the bourse figure rather than the counter figure,
+     so the premium setting is added to it. */
+  function goldPricePerGram(karat) {
+    var manual = Number(state.settings.goldManualPrice) || 0;
+    var base, premium;
+    if (manual > 0) {
+      base = manual;
+      premium = 1;
+    } else {
+      var snapshot = latestGoldPrice();
+      if (!snapshot) return 0;
+      base = snapshot.egpPerGram24 || 0;
+      premium = 1 + ((Number(state.settings.goldPremium) || 0) / 100);
+    }
+    return Math.round(base * premium * goldPurity(karat));
+  }
+
+  /* Spot price per gram of pure gold, in minor units, from usd/oz and the
+     pound rate. Kept here so the fetcher and the tests agree on the sum. */
+  function goldGramFromSpot(usdPerOz, egpPerUsd) {
+    var perGram = (Number(usdPerOz) / GRAMS_PER_OZ) * Number(egpPerUsd);
+    return isFinite(perGram) ? Math.round(perGram * 100) : 0;
+  }
+
+  /* One snapshot a day: same-day refreshes replace, so the history is a clean
+     daily series rather than one row per app launch. */
+  function recordGoldPrice(reading) {
+    var date = reading.date || todayISO();
+    var record = {
+      id: 'gpr_' + date,
+      date: date,
+      usdPerOz: Number(reading.usdPerOz) || 0,
+      egpPerUsd: Number(reading.egpPerUsd) || 0,
+      egpPerGram24: goldGramFromSpot(reading.usdPerOz, reading.egpPerUsd),
+      source: reading.source || '',
+      fetchedAt: new Date().toISOString()
+    };
+    var idx = state.goldPrices.findIndex(function (p) { return p.id === record.id; });
+    if (idx === -1) state.goldPrices.push(record);
+    else state.goldPrices[idx] = record;
+    // Two years of daily readings is plenty to chart against; older ones only
+    // grow the database.
+    if (state.goldPrices.length > 800) {
+      state.goldPrices = state.goldPrices
+        .slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+        .slice(-800);
+    }
+    save();
+    return record;
+  }
+
+  /* Grams held per karat, with what each pile is worth today. */
+  function goldHoldings() {
+    var byKarat = {};
+    state.gold.forEach(function (r) {
+      var karat = Number(r.karat) || 24;
+      var grams = Number(r.grams) || 0;
+      byKarat[karat] = (byKarat[karat] || 0) + (r.direction === 'sell' ? -grams : grams);
+    });
+    return Object.keys(byKarat)
+      .map(Number)
+      .sort(function (a, b) { return b - a; })
+      .map(function (karat) {
+        var grams = byKarat[karat];
+        return { karat: karat, grams: grams, value: Math.round(grams * goldPricePerGram(karat)) };
+      })
+      // Floating-point grams never land exactly on zero once you have sold some.
+      .filter(function (h) { return Math.abs(h.grams) > 1e-9; });
+  }
+
+  function goldValue() { return sum(goldHoldings(), function (h) { return h.value; }); }
+
+  /* Money actually put into gold: what you paid, less what selling gave back.
+     Against goldValue() this is the gain or loss. */
+  function goldInvested() {
+    return state.gold.reduce(function (total, r) {
+      var amount = r.amount || 0;
+      return total + (r.direction === 'sell' ? -amount : amount);
+    }, 0);
+  }
+
+  function goldSummary() {
+    var value = goldValue();
+    var invested = goldInvested();
+    return {
+      value: value,
+      invested: invested,
+      gain: value - invested,
+      gainRate: invested > 0 ? (value - invested) / invested : 0,
+      grams: sum(goldHoldings(), function (h) { return h.grams; }),
+      pure: sum(goldHoldings(), function (h) { return h.grams * goldPurity(h.karat); }),
+      price: latestGoldPrice(),
+      manual: (Number(state.settings.goldManualPrice) || 0) > 0
+    };
   }
 
   function summary(period) {
@@ -458,8 +692,8 @@
     var billsPaid = sum(bills.filter(function (b) { return b.status === 'paid'; }), function (r) { return r.amount; });
     var purchases = sum(purchasesIn(period), function (r) { return r.amount; });
     var tx = savingsTxIn(period);
-    var savedIn = sum(tx.filter(function (t) { return t.direction === 'in'; }), function (t) { return t.amount; });
-    var savedOut = sum(tx.filter(function (t) { return t.direction === 'out'; }), function (t) { return t.amount; });
+    var savedIn = sum(tx, function (t) { return savingsMovement(t).in; });
+    var savedOut = sum(tx, function (t) { return savingsMovement(t).out; });
     var spent = billsTotal + purchases;
 
     return {
@@ -496,6 +730,7 @@
     state.income.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.purchases.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.savingsTx.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
+    state.gold.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.bills.forEach(function (r) { if (r.period) set[r.period] = 1; });
     set[currentPeriod()] = 1;
     return Object.keys(set).sort().reverse();
@@ -549,8 +784,11 @@
     PURCHASE_CATEGORIES: PURCHASE_CATEGORIES,
     PAYMENT_METHODS: PAYMENT_METHODS,
     ACCOUNT_TYPES: ACCOUNT_TYPES,
+    SAVINGS_TYPES: SAVINGS_TYPES,
     FREQUENCIES: FREQUENCIES,
     METERED: METERED,
+    GOLD_KARATS: GOLD_KARATS,
+    GRAMS_PER_OZ: GRAMS_PER_OZ,
 
     get state() { return state; },
     get storageAvailable() { return storageAvailable; },
@@ -565,10 +803,18 @@
     dueDateFor: dueDateFor, occursIn: occursIn,
 
     generateBills: generateBills, generateIncome: generateIncome, catchUp: catchUp,
+    linkGeneratedTo: linkGeneratedTo,
     billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
     normalizeBill: normalizeBill, looksLikeBackup: looksLikeBackup,
     incomeIn: incomeIn, purchasesIn: purchasesIn, billsIn: billsIn, savingsTxIn: savingsTxIn,
-    accountBalance: accountBalance, totalSavings: totalSavings,
+    accountBalance: accountBalance, accountFlows: accountFlows, totalSavings: totalSavings,
+    savingsBalance: savingsBalance, savingsMovement: savingsMovement, isSavingsAccount: isSavingsAccount,
+
+    goldIn: goldIn, goldPurity: goldPurity, goldPricePerGram: goldPricePerGram,
+    goldGramFromSpot: goldGramFromSpot, recordGoldPrice: recordGoldPrice,
+    latestGoldPrice: latestGoldPrice, goldHoldings: goldHoldings, goldValue: goldValue,
+    goldInvested: goldInvested, goldSummary: goldSummary,
+
     summary: summary, groupByCategory: groupByCategory, activePeriods: activePeriods,
     trend: trend, upcomingBills: upcomingBills, sortByDateDesc: sortByDateDesc, sum: sum,
 

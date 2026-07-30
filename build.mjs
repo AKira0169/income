@@ -11,7 +11,7 @@ const vendor = (name) => join(here, 'vendor', name);
 // A literal </script> anywhere in the bundle would close the tag early.
 const guard = (code) => code.replace(/<\/script>/gi, '<\\/script>');
 
-const ORDER = ['xlsx.js', 'store.js', 'sqlite.js', 'export.js', 'ui.js'];
+const ORDER = ['xlsx.js', 'store.js', 'sqlite.js', 'gold.js', 'datepicker.js', 'export.js', 'ui.js'];
 
 /* The wasm binary is base64'd into the page because a file:// document cannot
    fetch a sibling file, and OPFS is unavailable there — verified, not assumed. */

@@ -173,6 +173,28 @@ td.actions, th.actions { text-align: right; white-space: nowrap; width: 1%; }
 .cell-sub { display: block; font-size: 12px; color: var(--ink-muted); }
 .truncate { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* History: a ruled month heading inside the table, the way a ledger breaks. */
+.group-row td {
+  background: #FAF8F3;
+  border-bottom: 1px solid var(--rule-strong);
+  padding: var(--s2) var(--s4);
+  font-family: var(--font-mono); font-size: 12px;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--ink-muted);
+}
+.group-row td > span { display: inline-block; }
+.group-total { float: right; color: var(--ink); }
+
+/* Two states of one list, not two buttons. */
+.scope { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.scope-btn {
+  border: 0; border-radius: 0; background: none; color: var(--ink-muted);
+  font-size: 12px; font-weight: 500; padding: 3px var(--s2);
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .06em;
+}
+.scope-btn + .scope-btn { border-left: 1px solid var(--rule); }
+.scope-btn.is-on { background: var(--ink-strong); color: #FFF; }
+.scope-btn.is-on:hover { background: #2C2C2C; }
+
 .empty { padding: var(--s8) var(--s4); text-align: center; color: var(--ink-muted); font-size: var(--t-sm); }
 .empty strong { display: block; color: var(--ink); font-family: var(--font-display); font-size: var(--t-base); margin-bottom: var(--s1); }
 
@@ -236,6 +258,67 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 .btn-row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
 
+/* ------------------------------------------------------------- date picker */
+
+/* The native date input is not used anywhere: this is a text field that takes
+   the date the way it is written here, with a calendar hanging off it. */
+.dp { position: relative; display: flex; align-items: stretch; }
+.dp-text { font-family: var(--font-mono); padding-right: 34px; }
+.dp-button {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 30px;
+  display: grid; place-items: center; padding: 0;
+  border: 0; border-left: 1px solid var(--rule); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: none; color: var(--ink-muted);
+}
+.dp-button:hover { background: #F2EFE8; color: var(--ink); border-color: var(--rule); }
+
+.dp-pop {
+  position: fixed; z-index: 200;
+  width: 268px; padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: var(--r-md);
+  box-shadow: 0 10px 30px rgba(17, 17, 17, .16);
+}
+.dp-head { display: flex; align-items: center; gap: var(--s1); margin-bottom: var(--s2); }
+.dp-title {
+  flex: 1; font-family: var(--font-display); font-size: var(--t-sm); font-weight: 600;
+  border-color: transparent; background: none; padding: var(--s1) var(--s2);
+}
+.dp-nav {
+  width: 30px; padding: var(--s1) 0; line-height: 1;
+  border-color: transparent; background: none; color: var(--ink-muted); font-size: var(--t-md);
+}
+.dp-nav:hover, .dp-title:hover { background: #F2EFE8; }
+
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dp-dow {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ink-faint); text-align: center; padding-bottom: var(--s1);
+}
+.dp-day {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 400;
+  border-color: transparent; background: none; border-radius: var(--r-sm);
+  padding: 6px 0; text-align: center;
+}
+.dp-day:hover { background: #F2EFE8; }
+/* Today is marked with a rule under the figure, the way a diary marks it. */
+.dp-day.is-today { box-shadow: inset 0 -2px 0 var(--rule-strong); }
+.dp-day.is-selected { background: var(--ink-strong); color: #FFF; }
+.dp-day.is-selected:hover { background: #2C2C2C; }
+.dp-pad { visibility: hidden; }
+
+.dp-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s1); }
+.dp-month { font-size: 13px; border-color: transparent; background: none; padding: var(--s2) 0; }
+.dp-month:hover { background: #F2EFE8; }
+.dp-month.is-selected { background: var(--ink-strong); color: #FFF; }
+
+.dp-foot {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--rule);
+}
+.dp-quick { font-size: 12px; padding: var(--s1) var(--s2); }
+.dp-hint { flex: 1; text-align: center; font-size: 11px; color: var(--ink-faint); }
+
 /* Disclosure: the add-forms stay folded away until asked for. */
 .disclosure-body { padding: var(--s4); border-top: 1px solid var(--rule); background: #FCFBF8; }
 
@@ -272,6 +355,29 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .account-top { display: flex; align-items: flex-start; gap: var(--s2); }
 .account-name { font-family: var(--font-display); font-weight: 600; }
 .account-balance { font-family: var(--font-mono); font-size: var(--t-lg); margin-top: var(--s2); letter-spacing: -.02em; }
+
+.account-balance.is-negative { color: var(--ink-danger); }
+
+/* Where a balance came from, in the order money moved. */
+.flows { margin-top: var(--s3); border-top: 1px solid var(--rule); padding-top: var(--s2); }
+.flow {
+  display: flex; justify-content: space-between; gap: var(--s3);
+  font-size: 13px; color: var(--ink-muted); padding: 1px 0;
+}
+.flow .num { color: var(--ink); }
+.flow.is-out .num { color: var(--ink-muted); }
+
+/* -------------------------------------------------------------------- gold */
+
+.gold-prices { display: grid; gap: var(--s2); grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.gold-price { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: var(--s3); }
+/* 21k is what is actually sold here, so it is the one the eye lands on. */
+.gold-price.is-lead { border-color: var(--ink-strong); border-width: 1px 1px 2px; }
+.gold-price-value {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--t-md); letter-spacing: -.02em; margin-top: var(--s1);
+}
+.spark { display: block; width: 100%; height: 60px; color: var(--ink-strong); }
 
 /* ------------------------------------------------------------------ dialog */
 

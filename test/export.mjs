@@ -8,10 +8,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.XLSX_OUT || join(here, '..', '.tmp');
 mkdirSync(outDir, { recursive: true });
 
-for (const mod of ['xlsx.js', 'store.js', 'export.js']) {
+for (const mod of ['xlsx.js', 'store.js', 'datepicker.js', 'export.js']) {
   await import(pathToFileURL(join(here, '..', 'src', mod)).href);
 }
-const { Store, Exporter } = globalThis;
+const { Store, Exporter, DatePicker } = globalThis;
 
 let failures = 0;
 const check = (label, actual, expected) => {
@@ -166,10 +166,92 @@ check('quarterly 60.00 -> 20.00/mo', Store.monthlyEquivalent({ frequency: 'Quart
 check('yearly 600.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Yearly', expected: 60000 }), 5000);
 check('half-yearly 300.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Half-yearly', expected: 30000 }), 5000);
 check('one-off counts as 0/mo', Store.monthlyEquivalent({ frequency: 'One-off', expected: 50000 }), 0);
+/* ---------------- accounts carry every flow, not just movements ---------- */
+console.log('\naccounts as real balances:');
+const base = 100000 + 50000 + 60000 - 15000;
+check('starting balance', Store.accountBalance(accId), base);
+
+Store.upsert('income', { id: 'i9', date: '2026-07-05', source: 'Bonus', category: 'Bonus', amount: 100000, accountId: accId, method: 'Bank Transfer', notes: '' });
+check('income raises the account it was paid into', Store.accountBalance(accId), base + 100000);
+
+Store.upsert('purchases', { id: 'p9', date: '2026-07-06', item: 'Shoes', category: 'Clothing', amount: 20000, accountId: accId, method: 'Card', notes: '' });
+check('a purchase lowers it', Store.accountBalance(accId), base + 100000 - 20000);
+
+Store.upsert('bills', { id: 'b9', name: 'Gym', category: 'Subscriptions', period: '2026-07', dueDate: '2026-07-20', amount: 5000, accountId: accId, status: 'unpaid', paidDate: '' });
+check('an unpaid bill is a commitment, not a withdrawal', Store.accountBalance(accId), base + 100000 - 20000);
+Store.upsert('bills', { id: 'b9', status: 'paid', paidDate: '2026-07-20' });
+check('paying it takes the money out', Store.accountBalance(accId), base + 100000 - 20000 - 5000);
+
+Store.upsert('accounts', { id: 'acc_visa', name: 'Visa', type: 'Current Account', opening: 200000, target: 0, notes: '' });
+Store.upsert('savingsTx', { id: 's9', date: '2026-07-25', direction: 'transfer', fromAccountId: 'acc_visa', accountId: 'acc_holiday', amount: 40000, notes: '' });
+check('a transfer leaves the account it came from', Store.accountBalance('acc_visa'), 200000 - 40000);
+check('and lands in the one it went to', Store.accountBalance('acc_holiday'), 25000 + 40000);
+check('card to pot counts as saving', Store.summary('2026-07').savedIn, 60000 + 25000 + 40000);
+
+Store.upsert('savingsTx', { id: 's10', date: '2026-07-26', direction: 'transfer', fromAccountId: accId, accountId: 'acc_holiday', amount: 10000, notes: '' });
+check('pot to pot is not new saving', Store.summary('2026-07').savedIn, 60000 + 25000 + 40000);
+
+/* ---------------- gold ---------------- */
+console.log('\ngold:');
+// One troy ounce is 31.1034768 g, so at $3110.34768/oz a gram is exactly $100;
+// at 10 pounds to the dollar that is E£1000.00 a gram.
+check('spot to price per gram', Store.goldGramFromSpot(3110.34768, 10), 100000);
+Store.recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
+check('one snapshot stored', Store.state.goldPrices.length, 1);
+Store.recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
+check('a second reading the same day replaces it', Store.state.goldPrices.length, 1);
+check('the shop premium starts at 2%', Store.state.settings.goldPremium, 2);
+check('which lifts the bourse price', Store.goldPricePerGram(24), 102000);
+
+Store.state.settings.goldPremium = 0;
+check('24k is the whole price', Store.goldPricePerGram(24), 100000);
+check('21k is 21 parts of 24', Store.goldPricePerGram(21), 87500);
+check('18k is three quarters', Store.goldPricePerGram(18), 75000);
+
+Store.state.settings.goldPremium = 5;
+check('a shop premium lifts every karat', Store.goldPricePerGram(21), 91875);
+Store.state.settings.goldManualPrice = 200000;
+check('your own price is used exactly as typed', Store.goldPricePerGram(24), 200000);
+check('and still splits by karat', Store.goldPricePerGram(21), 175000);
+Store.state.settings.goldManualPrice = 0;
+Store.state.settings.goldPremium = 0;
+
+Store.upsert('gold', { id: 'g1', date: '2026-07-10', direction: 'buy', karat: 21, grams: 10, amount: 800000, accountId: 'acc_visa', dealer: 'Souq', notes: '' });
+Store.upsert('gold', { id: 'g2', date: '2026-07-20', direction: 'sell', karat: 21, grams: 2, amount: 180000, accountId: 'acc_visa', dealer: '', notes: '' });
+check('grams held net off sales', Store.goldHoldings(), [{ karat: 21, grams: 8, value: 8 * 87500 }]);
+check('pure gold equivalent', Math.round(Store.goldSummary().pure * 1000) / 1000, 7);
+check('worth today', Store.goldValue(), 700000);
+check('what it cost, net of the sale', Store.goldInvested(), 800000 - 180000);
+check('gain', Store.goldSummary().gain, 700000 - 620000);
+check('buying gold takes money out of the account that paid',
+  Store.accountBalance('acc_visa'), 200000 - 40000 - 800000 + 180000);
+
+/* ---------------- the date field's parser ---------------- */
+console.log('\ndate parsing (the native picker is not used):');
+const parse = (text) => DatePicker.parse(text, '2026-07-10');
+check('day and month', parse('5/8'), '2026-08-05');
+check('day month short year', parse('5-8-26'), '2026-08-05');
+check('dots', parse('5.8.2026'), '2026-08-05');
+check('iso straight through', parse('2026-08-05'), '2026-08-05');
+check('no separators', parse('05082026'), '2026-08-05');
+check('six digits', parse('050826'), '2026-08-05');
+check('a bare day means the month on screen', parse('5'), '2026-07-05');
+check('empty means empty', parse(''), '');
+check('an impossible day is refused', parse('31/02/2026'), null);
+check('so is nonsense', parse('hello'), null);
+check('leap day is fine', parse('29/02/2028'), '2028-02-29');
+check('and is not in a common year', parse('29/02/2026'), null);
+check('display is dd/mm/yyyy', DatePicker.display('2026-08-05'), '05/08/2026');
+
 // Roll back everything generated above so the export assertions below run
-// against the seed set.
+// against the seed set. The price history is deliberately kept: it proves the
+// Gold sheet carries a series even when no gold is held.
 Store.state.bills = Store.state.bills.filter(b => ['b1', 'b2', 'b3', 'b4'].includes(b.id));
 Store.state.income = Store.state.income.filter(r => ['i1', 'i2', 'i3'].includes(r.id));
+Store.state.purchases = Store.state.purchases.filter(r => ['p1', 'p2'].includes(r.id));
+Store.state.accounts = Store.state.accounts.filter(a => [accId, 'acc_holiday'].includes(a.id));
+Store.state.savingsTx = Store.state.savingsTx.filter(t => ['s1', 's2', 's3', 's4'].includes(t.id));
+Store.state.gold = [];
 
 /* ---------------- build + parse ---------------- */
 const bytes = Exporter.build({ type: 'all' });
@@ -191,12 +273,13 @@ const grid = (name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, ra
 console.log('\nworkbook:');
 check('sheet names', wb.SheetNames, [
   'Summary', 'Income', 'Recurring Income', 'Bills', 'Recurring Bills', 'Purchases',
-  'Utilities & Meters', 'Savings Accounts', 'Savings Transactions',
+  'Utilities & Meters', 'Savings Accounts', 'Savings Transactions', 'Gold',
   'Monthly Breakdown', 'Category Breakdown'
 ]);
 
 const inc = grid('Income');
-check('income header', inc[0], ['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring']);
+check('income header', inc[0],
+  ['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring', 'Paid Into']);
 check('income sorted oldest first', inc[1][0], 46201); // 2026-06-28
 // Rows are date-ascending: i1 (06-28), i3 (07-12), i2 (07-28).
 check('income non-ascii source survives', inc[2][1], 'Café Ünïcode & Co');

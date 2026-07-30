@@ -11,6 +11,11 @@
 
   function headerRow(labels) { return labels.map(head); }
 
+  function accountName(id) {
+    var account = S.byId('accounts', id);
+    return account ? account.name : '';
+  }
+
   /* SUM over a column, or a literal 0 when there is nothing to sum. */
   function columnTotal(col, firstRow, lastRow, cachedCents) {
     if (lastRow < firstRow) return { t: 'money', v: 0, s: 'moneyBold' };
@@ -31,6 +36,7 @@
         bills: st.bills.slice(),
         purchases: st.purchases.slice(),
         savingsTx: st.savingsTx.slice(),
+        gold: st.gold.slice(),
         periods: S.activePeriods().slice().sort()
       };
     }
@@ -42,6 +48,7 @@
         bills: st.bills.filter(function (r) { return String(r.period || '').slice(0, 4) === yr; }),
         purchases: st.purchases.filter(function (r) { return inYear(r.date); }),
         savingsTx: st.savingsTx.filter(function (r) { return inYear(r.date); }),
+        gold: st.gold.filter(function (r) { return inYear(r.date); }),
         periods: S.activePeriods().filter(function (p) { return p.slice(0, 4) === yr; }).sort()
       };
     }
@@ -49,6 +56,7 @@
     return {
       income: S.incomeIn(p), bills: S.billsIn(p),
       purchases: S.purchasesIn(p), savingsTx: S.savingsTxIn(p),
+      gold: S.goldIn(p),
       periods: [p]
     };
   }
@@ -63,20 +71,22 @@
 
   /* The Recurring column is appended, not inserted: Amount stays in column D,
      which the Summary sheet and the total below both address by letter. */
+  /* Account is appended rather than inserted, for the same reason Recurring
+     was: Amount stays in column D, which the Summary sheet addresses by letter. */
   function incomeSheet(records) {
-    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring'])];
+    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring', 'Paid Into'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
       rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
-        r.templateId ? 'Yes' : '']);
+        r.templateId ? 'Yes' : '', accountName(r.accountId)]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
-    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null]);
+    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null, null]);
     return {
       name: 'Income', freeze: 1,
-      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }],
+      autoFilter: sorted.length ? 'A1:H' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }, { w: 18 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
@@ -108,7 +118,7 @@
 
   function billsSheet(records) {
     var rows = [headerRow(['Period', 'Due Date', 'Bill', 'Category', 'Provider', 'Amount',
-      'Units Used', 'Unit', 'Rate / Unit', 'Status', 'Paid Date', 'Method', 'Notes'])];
+      'Units Used', 'Unit', 'Rate / Unit', 'Status', 'Paid Date', 'Method', 'Notes', 'Paid From'])];
     var sorted = records.slice().sort(function (a, b) {
       return String(a.period + a.dueDate).localeCompare(String(b.period + b.dueDate));
     });
@@ -121,7 +131,7 @@
         unit,
         (b.unitRate === null || b.unitRate === undefined || b.unitRate === '') ? null : { t: 'number', v: Number(b.unitRate) },
         b.status === 'paid' ? 'Paid' : (S.billIsOverdue(b) ? 'OVERDUE' : 'Unpaid'),
-        date(b.paidDate), b.method || '', b.notes || ''
+        date(b.paidDate), b.method || '', b.notes || '', accountName(b.accountId)
       ]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
@@ -132,9 +142,9 @@
     rows.push([bold('Outstanding'), null, null, null, null, { t: 'money', v: (total - paid) / 100, s: 'moneyBold' }]);
     return {
       name: 'Bills', freeze: 1,
-      autoFilter: sorted.length ? 'A1:M' + (sorted.length + 1) : null,
+      autoFilter: sorted.length ? 'A1:N' + (sorted.length + 1) : null,
       cols: [{ w: 10 }, { w: 12 }, { w: 22 }, { w: 16 }, { w: 18 }, { w: 14 }, { w: 12 }, { w: 8 },
-        { w: 12 }, { w: 11 }, { w: 12 }, { w: 15 }, { w: 28 }],
+        { w: 12 }, { w: 11 }, { w: 12 }, { w: 15 }, { w: 28 }, { w: 18 }],
       rows: rows, _total: total, _paid: paid, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
@@ -164,65 +174,141 @@
   }
 
   function purchasesSheet(records) {
-    var rows = [headerRow(['Date', 'Item', 'Category', 'Amount', 'Method', 'Notes'])];
+    var rows = [headerRow(['Date', 'Item', 'Category', 'Amount', 'Method', 'Notes', 'Paid From'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
-      rows.push([date(r.date), r.item || '', r.category || '', money(r.amount), r.method || '', r.notes || '']);
+      rows.push([date(r.date), r.item || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
+        accountName(r.accountId)]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
     rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total)]);
     return {
       name: 'Purchases', freeze: 1,
-      autoFilter: sorted.length ? 'A1:F' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 28 }, { w: 18 }, { w: 14 }, { w: 16 }, { w: 30 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 28 }, { w: 18 }, { w: 14 }, { w: 16 }, { w: 30 }, { w: 18 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
 
+  /* Column F stays Current Balance: the Summary sheet sums it by letter.
+     Paid In and Withdrawn now cover every flow that touches the account, not
+     only the movements you recorded by hand, or the columns would not add up
+     to the balance beside them. */
   function accountsSheet() {
-    var rows = [headerRow(['Account', 'Type', 'Opening Balance', 'Paid In', 'Withdrawn', 'Current Balance', 'Target', 'Progress', 'Notes'])];
+    var rows = [headerRow(['Account', 'Type', 'Opening Balance', 'Paid In', 'Withdrawn', 'Current Balance',
+      'Target', 'Progress', 'Notes', 'Income', 'Purchases', 'Bills Paid', 'Gold', 'Moved In', 'Moved Out'])];
     var st = S.state;
     st.accounts.forEach(function (a) {
-      var inSum = S.sum(st.savingsTx.filter(function (t) { return t.accountId === a.id && t.direction === 'in'; }), function (t) { return t.amount; });
-      var outSum = S.sum(st.savingsTx.filter(function (t) { return t.accountId === a.id && t.direction === 'out'; }), function (t) { return t.amount; });
+      var f = S.accountFlows(a.id);
       var balance = S.accountBalance(a.id);
       rows.push([
-        a.name || '', a.type || '', money(a.opening), money(inSum), money(outSum), money(balance),
+        a.name || '', a.type || '', money(a.opening),
+        money(f.income + f.savedIn),
+        money(f.purchases + f.bills + f.savedOut + f.gold),
+        money(balance),
         a.target ? money(a.target) : null,
         a.target ? { t: 'percent', v: balance / a.target } : null,
-        a.notes || ''
+        a.notes || '',
+        money(f.income), money(f.purchases), money(f.bills), money(f.gold),
+        money(f.savedIn), money(f.savedOut)
       ]);
     });
     var total = S.totalSavings();
     rows.push([]);
-    rows.push([bold('Total savings'), null, null, null, null, columnTotal('F', 2, st.accounts.length + 1, total)]);
+    rows.push([bold('Across all accounts'), null, null, null, null, columnTotal('F', 2, st.accounts.length + 1, total)]);
+    rows.push([bold('Of which savings pots'), null, null, null, null,
+      { t: 'money', v: S.savingsBalance() / 100, s: 'moneyBold' }]);
     return {
       name: 'Savings Accounts', freeze: 1,
-      cols: [{ w: 24 }, { w: 16 }, { w: 16 }, { w: 14 }, { w: 14 }, { w: 17 }, { w: 14 }, { w: 11 }, { w: 28 }],
+      cols: [{ w: 24 }, { w: 16 }, { w: 16 }, { w: 14 }, { w: 14 }, { w: 17 }, { w: 14 }, { w: 11 }, { w: 28 },
+        { w: 14 }, { w: 14 }, { w: 14 }, { w: 12 }, { w: 13 }, { w: 13 }],
       rows: rows, _total: total
     };
   }
 
+  function movementLabel(t) {
+    if (t.direction === 'transfer') return 'Transfer';
+    return t.direction === 'out' ? 'Withdrawal' : 'Deposit';
+  }
+
   function savingsTxSheet(records) {
-    var rows = [headerRow(['Date', 'Account', 'Direction', 'Amount', 'Notes'])];
+    var rows = [headerRow(['Date', 'Account', 'Direction', 'Amount', 'Notes', 'From Account', 'Counts As Saving'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (t) {
-      var account = S.byId('accounts', t.accountId);
-      rows.push([date(t.date), account ? account.name : '(deleted account)',
-        t.direction === 'out' ? 'Withdrawal' : 'Deposit', money(t.amount), t.notes || '']);
+      var move = S.savingsMovement(t);
+      rows.push([date(t.date), accountName(t.accountId) || '(deleted account)',
+        movementLabel(t), money(t.amount), t.notes || '',
+        t.direction === 'transfer' ? (accountName(t.fromAccountId) || '(deleted account)') : '',
+        move.in ? 'In' : (move.out ? 'Out' : 'No')]);
     });
-    var inSum = S.sum(sorted.filter(function (t) { return t.direction === 'in'; }), function (t) { return t.amount; });
-    var outSum = S.sum(sorted.filter(function (t) { return t.direction === 'out'; }), function (t) { return t.amount; });
+    // Moving money between two of your own pots is not saving more of it, so
+    // the totals count only what crossed the line into or out of savings.
+    var inSum = S.sum(sorted, function (t) { return S.savingsMovement(t).in; });
+    var outSum = S.sum(sorted, function (t) { return S.savingsMovement(t).out; });
     rows.push([]);
-    rows.push([bold('Deposited'), null, null, { t: 'money', v: inSum / 100, s: 'moneyBold' }]);
-    rows.push([bold('Withdrawn'), null, null, { t: 'money', v: outSum / 100, s: 'moneyBold' }]);
+    rows.push([bold('Into savings'), null, null, { t: 'money', v: inSum / 100, s: 'moneyBold' }]);
+    rows.push([bold('Out of savings'), null, null, { t: 'money', v: outSum / 100, s: 'moneyBold' }]);
     rows.push([bold('Net saved'), null, null, { t: 'money', v: (inSum - outSum) / 100, s: 'moneyBold' }]);
     return {
       name: 'Savings Transactions', freeze: 1,
-      autoFilter: sorted.length ? 'A1:E' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 13 }, { w: 14 }, { w: 32 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 13 }, { w: 14 }, { w: 32 }, { w: 24 }, { w: 16 }],
       rows: rows, _in: inSum, _out: outSum
+    };
+  }
+
+  /* Gold: what was bought and sold, what is left, and the daily price series
+     the valuation is built on — so the workbook stands on its own. */
+  function goldSheet(records) {
+    var rows = [headerRow(['Date', 'Bought / Sold', 'Karat', 'Grams', 'Amount', 'Price / Gram',
+      'Paid From', 'Shop', 'Notes'])];
+    var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    sorted.forEach(function (r, i) {
+      var grams = Number(r.grams) || 0;
+      var line = i + 2;
+      rows.push([
+        date(r.date), r.direction === 'sell' ? 'Sold' : 'Bought',
+        { t: 'int', v: Number(r.karat) || 24 },
+        grams ? { t: 'number', v: grams } : null,
+        money(r.amount),
+        grams ? { t: 'formula', f: 'IF(D' + line + '=0,"",E' + line + '/D' + line + ')', v: (r.amount / 100) / grams, s: 'money' } : null,
+        accountName(r.accountId), r.dealer || '', r.notes || ''
+      ]);
+    });
+    if (!sorted.length) {
+      rows.push([{ v: 'No gold recorded in this period.', s: 'muted' }]);
+    }
+
+    var summary = S.goldSummary();
+    rows.push([]);
+    rows.push([{ v: 'Held now (all time)', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' },
+      { v: '', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    rows.push([head('Karat'), head('Grams'), head('Price / Gram'), head('Worth')]);
+    S.goldHoldings().forEach(function (h) {
+      rows.push([{ t: 'int', v: h.karat }, { t: 'number', v: h.grams },
+        money(S.goldPricePerGram(h.karat)), money(h.value)]);
+    });
+    rows.push([bold('Total worth'), null, null, { t: 'money', v: summary.value / 100, s: 'moneyBold' }]);
+    rows.push([bold('Paid for it'), null, null, { t: 'money', v: summary.invested / 100, s: 'moneyBold' }]);
+    rows.push([bold(summary.gain >= 0 ? 'Gain' : 'Loss'), null, null, { t: 'money', v: summary.gain / 100, s: 'moneyBold' }]);
+    rows.push([]);
+
+    var history = S.state.goldPrices.slice()
+      .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    rows.push([{ v: 'Price history', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    rows.push([head('Date'), head('24k / Gram'), head('USD / Ounce'), head('EGP per USD'), head('Source')]);
+    history.forEach(function (p) {
+      rows.push([date(p.date), money(p.egpPerGram24),
+        { t: 'number', v: Number(p.usdPerOz) || 0 }, { t: 'number', v: Number(p.egpPerUsd) || 0 },
+        p.source || '']);
+    });
+    if (!history.length) rows.push([{ v: 'No prices have been fetched yet.', s: 'muted' }]);
+
+    return {
+      name: 'Gold', freeze: 1,
+      cols: [{ w: 12 }, { w: 14 }, { w: 9 }, { w: 11 }, { w: 14 }, { w: 14 }, { w: 18 }, { w: 18 }, { w: 26 }],
+      rows: rows, _value: summary.value, _invested: summary.invested
     };
   }
 
@@ -402,6 +488,22 @@
     }, S.plural(st.accounts.length, 'account') + ' (all time)');
     rows.push([]);
 
+    /* Only when there is gold to report. An empty block on everyone else's
+       summary would be noise, and the rows above keep their addresses. */
+    if (st.gold.length) {
+      var goldFigures = S.goldSummary();
+      rows.push([{ v: 'Gold', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+      line('Gold held', { t: 'number', v: goldFigures.grams }, goldFigures.pure.toFixed(2) + ' g of pure gold');
+      line('Worth today', { t: 'money', v: goldFigures.value / 100, s: 'moneyBold' },
+        goldFigures.price ? 'priced ' + goldFigures.price.date : 'no price fetched');
+      line('Paid for it', { t: 'money', v: goldFigures.invested / 100, s: 'money' });
+      line(goldFigures.gain >= 0 ? 'Gain' : 'Loss', { t: 'money', v: goldFigures.gain / 100, s: 'moneyBold' },
+        goldFigures.invested ? Math.round(goldFigures.gainRate * 100) + '% on what you paid' : null);
+      line('Accounts and gold together',
+        { t: 'money', v: (sheets.accounts._total + goldFigures.value) / 100, s: 'moneyBold' });
+      rows.push([]);
+    }
+
     rows.push([{ v: 'Where the money went', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
     var outgoings = sel.bills.concat(sel.purchases);
     var groups = S.groupByCategory(outgoings).slice(0, 12);
@@ -429,6 +531,7 @@
       purchases: purchasesSheet(sel.purchases),
       accounts: accountsSheet(),
       savingsTx: savingsTxSheet(sel.savingsTx),
+      gold: goldSheet(sel.gold),
       monthly: monthlySheet(sel.periods),
       categories: categorySheet(sel),
       utilities: utilitiesSheet(sel.bills)
@@ -440,7 +543,7 @@
         summarySheet(scope, sel, sheets),
         sheets.income, sheets.incomeTemplates,
         sheets.bills, sheets.templates, sheets.purchases,
-        sheets.utilities, sheets.accounts, sheets.savingsTx,
+        sheets.utilities, sheets.accounts, sheets.savingsTx, sheets.gold,
         sheets.monthly, sheets.categories
       ]
     });

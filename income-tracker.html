@@ -182,6 +182,28 @@ td.actions, th.actions { text-align: right; white-space: nowrap; width: 1%; }
 .cell-sub { display: block; font-size: 12px; color: var(--ink-muted); }
 .truncate { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* History: a ruled month heading inside the table, the way a ledger breaks. */
+.group-row td {
+  background: #FAF8F3;
+  border-bottom: 1px solid var(--rule-strong);
+  padding: var(--s2) var(--s4);
+  font-family: var(--font-mono); font-size: 12px;
+  text-transform: uppercase; letter-spacing: .08em; color: var(--ink-muted);
+}
+.group-row td > span { display: inline-block; }
+.group-total { float: right; color: var(--ink); }
+
+/* Two states of one list, not two buttons. */
+.scope { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--r-sm); overflow: hidden; }
+.scope-btn {
+  border: 0; border-radius: 0; background: none; color: var(--ink-muted);
+  font-size: 12px; font-weight: 500; padding: 3px var(--s2);
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .06em;
+}
+.scope-btn + .scope-btn { border-left: 1px solid var(--rule); }
+.scope-btn.is-on { background: var(--ink-strong); color: #FFF; }
+.scope-btn.is-on:hover { background: #2C2C2C; }
+
 .empty { padding: var(--s8) var(--s4); text-align: center; color: var(--ink-muted); font-size: var(--t-sm); }
 .empty strong { display: block; color: var(--ink); font-family: var(--font-display); font-size: var(--t-base); margin-bottom: var(--s1); }
 
@@ -245,6 +267,67 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 .btn-row { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
 
+/* ------------------------------------------------------------- date picker */
+
+/* The native date input is not used anywhere: this is a text field that takes
+   the date the way it is written here, with a calendar hanging off it. */
+.dp { position: relative; display: flex; align-items: stretch; }
+.dp-text { font-family: var(--font-mono); padding-right: 34px; }
+.dp-button {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 30px;
+  display: grid; place-items: center; padding: 0;
+  border: 0; border-left: 1px solid var(--rule); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: none; color: var(--ink-muted);
+}
+.dp-button:hover { background: #F2EFE8; color: var(--ink); border-color: var(--rule); }
+
+.dp-pop {
+  position: fixed; z-index: 200;
+  width: 268px; padding: var(--s2);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong); border-radius: var(--r-md);
+  box-shadow: 0 10px 30px rgba(17, 17, 17, .16);
+}
+.dp-head { display: flex; align-items: center; gap: var(--s1); margin-bottom: var(--s2); }
+.dp-title {
+  flex: 1; font-family: var(--font-display); font-size: var(--t-sm); font-weight: 600;
+  border-color: transparent; background: none; padding: var(--s1) var(--s2);
+}
+.dp-nav {
+  width: 30px; padding: var(--s1) 0; line-height: 1;
+  border-color: transparent; background: none; color: var(--ink-muted); font-size: var(--t-md);
+}
+.dp-nav:hover, .dp-title:hover { background: #F2EFE8; }
+
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dp-dow {
+  font-family: var(--font-mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ink-faint); text-align: center; padding-bottom: var(--s1);
+}
+.dp-day {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 400;
+  border-color: transparent; background: none; border-radius: var(--r-sm);
+  padding: 6px 0; text-align: center;
+}
+.dp-day:hover { background: #F2EFE8; }
+/* Today is marked with a rule under the figure, the way a diary marks it. */
+.dp-day.is-today { box-shadow: inset 0 -2px 0 var(--rule-strong); }
+.dp-day.is-selected { background: var(--ink-strong); color: #FFF; }
+.dp-day.is-selected:hover { background: #2C2C2C; }
+.dp-pad { visibility: hidden; }
+
+.dp-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s1); }
+.dp-month { font-size: 13px; border-color: transparent; background: none; padding: var(--s2) 0; }
+.dp-month:hover { background: #F2EFE8; }
+.dp-month.is-selected { background: var(--ink-strong); color: #FFF; }
+
+.dp-foot {
+  display: flex; align-items: center; gap: var(--s2);
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--rule);
+}
+.dp-quick { font-size: 12px; padding: var(--s1) var(--s2); }
+.dp-hint { flex: 1; text-align: center; font-size: 11px; color: var(--ink-faint); }
+
 /* Disclosure: the add-forms stay folded away until asked for. */
 .disclosure-body { padding: var(--s4); border-top: 1px solid var(--rule); background: #FCFBF8; }
 
@@ -281,6 +364,29 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .account-top { display: flex; align-items: flex-start; gap: var(--s2); }
 .account-name { font-family: var(--font-display); font-weight: 600; }
 .account-balance { font-family: var(--font-mono); font-size: var(--t-lg); margin-top: var(--s2); letter-spacing: -.02em; }
+
+.account-balance.is-negative { color: var(--ink-danger); }
+
+/* Where a balance came from, in the order money moved. */
+.flows { margin-top: var(--s3); border-top: 1px solid var(--rule); padding-top: var(--s2); }
+.flow {
+  display: flex; justify-content: space-between; gap: var(--s3);
+  font-size: 13px; color: var(--ink-muted); padding: 1px 0;
+}
+.flow .num { color: var(--ink); }
+.flow.is-out .num { color: var(--ink-muted); }
+
+/* -------------------------------------------------------------------- gold */
+
+.gold-prices { display: grid; gap: var(--s2); grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.gold-price { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: var(--s3); }
+/* 21k is what is actually sold here, so it is the one the eye lands on. */
+.gold-price.is-lead { border-color: var(--ink-strong); border-width: 1px 1px 2px; }
+.gold-price-value {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--t-md); letter-spacing: -.02em; margin-top: var(--s1);
+}
+.spark { display: block; width: 100%; height: 60px; color: var(--ink-strong); }
 
 /* ------------------------------------------------------------------ dialog */
 
@@ -982,9 +1088,22 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   var PAYMENT_METHODS = ['Bank Transfer', 'Direct Debit', 'Card', 'Cash', 'Standing Order', 'Mobile Money', 'Cheque', 'Other'];
 
-  var ACCOUNT_TYPES = ['Savings', 'Emergency Fund', 'Fixed Deposit', 'Investment', 'Pension', 'Cash', 'Goal Pot', 'Other'];
+  /* Accounts are every place money sits, not only the pots you save into: the
+     card the salary lands on is an account too, and every income, purchase and
+     paid bill moves a balance somewhere. */
+  var ACCOUNT_TYPES = ['Current Account', 'Card / Wallet', 'Savings', 'Emergency Fund',
+    'Fixed Deposit', 'Investment', 'Pension', 'Cash', 'Goal Pot', 'Other'];
+
+  /* Which of those count as money put aside. Moving pay from a card into one of
+     these is saving; moving it back out is not. */
+  var SAVINGS_TYPES = ['Savings', 'Emergency Fund', 'Fixed Deposit', 'Investment', 'Pension', 'Goal Pot'];
 
   var FREQUENCIES = ['Monthly', 'Bi-monthly', 'Quarterly', 'Half-yearly', 'Yearly', 'One-off'];
+
+  /* Karats sold by weight in Egypt. 24 is pure; the rest are that fraction of
+     pure gold, which is exactly how a jeweller prices them. */
+  var GOLD_KARATS = [24, 22, 21, 18, 14];
+  var GRAMS_PER_OZ = 31.1034768;   // troy ounce, the unit gold is quoted in
 
   /* How many times a year each frequency bills — used to put bills of different
      cadences on a comparable monthly footing. */
@@ -1120,7 +1239,17 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         currencyCode: 'EGP',
         locale: 'en-EG',
         savingsGoalRate: 20,
-        autoGenerate: true
+        autoGenerate: true,
+        /* Gold. The price is fetched from the world spot market and converted
+           to pounds; goldPremium is the margin an Egyptian shop adds on top,
+           and goldManualPrice overrides the lot with a figure you typed in.
+
+           2% is not a guess: on 30 July 2026 the spot conversion gave E£6,653.79
+           a gram for 24k while the shops were quoting E£6,775 — 1.82% over. The
+           gap moves, which is why it is a setting and not a constant. */
+        goldSync: true,
+        goldPremium: 2,
+        goldManualPrice: 0
       },
       income: [],
       incomeTemplates: [],
@@ -1128,7 +1257,9 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       bills: [],
       purchases: [],
       accounts: [],
-      savingsTx: []
+      savingsTx: [],
+      gold: [],
+      goldPrices: []
     };
   }
 
@@ -1152,7 +1283,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return (prefix || 'id') + '_' + rnd;
   }
 
-  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
+  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases',
+    'accounts', 'savingsTx', 'gold', 'goldPrices'];
 
   function migrate(loaded) {
     var base = blankState();
@@ -1208,7 +1340,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   var COLLECTIONS = {
     income: 'inc', incomeTemplates: 'itp', billTemplates: 'tpl', bills: 'bil',
-    purchases: 'pur', accounts: 'acc', savingsTx: 'sav'
+    purchases: 'pur', accounts: 'acc', savingsTx: 'sav', gold: 'gld', goldPrices: 'gpr'
   };
 
   function upsert(collection, record) {
@@ -1226,9 +1358,12 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function remove(collection, id) {
     state[collection] = state[collection].filter(function (r) { return r.id !== id; });
-    // Removing an account takes its transactions with it.
+    // Removing an account takes its movements with it, including transfers it
+    // was the source of — those are its movements too.
     if (collection === 'accounts') {
-      state.savingsTx = state.savingsTx.filter(function (t) { return t.accountId !== id; });
+      state.savingsTx = state.savingsTx.filter(function (t) {
+        return t.accountId !== id && t.fromAccountId !== id;
+      });
     }
     // Deleting a recurring definition keeps the entries it already produced,
     // orphaned rather than removed — that money really did move.
@@ -1262,6 +1397,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       period: period,
       dueDate: dueDateFor(period, tpl.dueDay),
       amount: tpl.expected || 0,
+      accountId: tpl.accountId || '',
       units: null,
       unitRate: null,
       status: 'unpaid',
@@ -1285,10 +1421,33 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       source: tpl.source,
       category: tpl.category,
       amount: tpl.expected || 0,
+      accountId: tpl.accountId || '',
       method: tpl.method || '',
       notes: tpl.notes || ''
     });
     return 1;
+  }
+
+  /* Pointing a recurring definition at an account takes the entries it has
+     already produced with it. Without this, setting your salary to land on a
+     card leaves every past salary counting towards no balance at all — which
+     reads as a broken figure rather than as missing data. Entries already
+     linked somewhere else are left exactly as they are. */
+  function linkGeneratedTo(collection, template) {
+    if (!template || !template.id || !template.accountId) return 0;
+    var records = collection === 'incomeTemplates' ? state.income
+      : collection === 'billTemplates' ? state.bills : null;
+    if (!records) return 0;
+
+    var linked = 0;
+    records.forEach(function (r) {
+      if (r.templateId === template.id && !r.accountId) {
+        r.accountId = template.accountId;
+        linked++;
+      }
+    });
+    if (linked) save();
+    return linked;
   }
 
   /* Fills `period` from every active template. Used by the manual buttons, so
@@ -1391,17 +1550,198 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return state.savingsTx.filter(function (r) { return periodOf(r.date) === period; });
   }
 
-  function accountBalance(accountId) {
+  function isSavingsAccount(account) {
+    return !!account && SAVINGS_TYPES.indexOf(account.type) !== -1;
+  }
+
+  /* Every flow that touches an account, in the order money actually moves.
+     A bill only leaves the account when it is paid — an unpaid bill is a
+     commitment, not a withdrawal, and deducting it would make the balance
+     disagree with the bank. */
+  function accountFlows(accountId) {
+    var flows = { opening: 0, income: 0, purchases: 0, bills: 0, savedIn: 0, savedOut: 0, gold: 0 };
     var account = byId('accounts', accountId);
-    if (!account) return 0;
-    return state.savingsTx.reduce(function (total, tx) {
-      if (tx.accountId !== accountId) return total;
-      return total + (tx.direction === 'out' ? -tx.amount : tx.amount);
-    }, account.opening || 0);
+    if (!account) return flows;
+    flows.opening = account.opening || 0;
+
+    state.income.forEach(function (r) {
+      if (r.accountId === accountId) flows.income += r.amount || 0;
+    });
+    state.purchases.forEach(function (r) {
+      if (r.accountId === accountId) flows.purchases += r.amount || 0;
+    });
+    state.bills.forEach(function (b) {
+      if (b.accountId === accountId && b.status === 'paid') flows.bills += b.amount || 0;
+    });
+    // Buying gold takes money out of an account and turns it into metal; selling
+    // puts it back. Net, so a positive figure means gold has cost this account.
+    state.gold.forEach(function (r) {
+      if (r.accountId !== accountId) return;
+      flows.gold += (r.direction === 'sell' ? -(r.amount || 0) : (r.amount || 0));
+    });
+    state.savingsTx.forEach(function (tx) {
+      var amount = tx.amount || 0;
+      if (tx.direction === 'transfer') {
+        if (tx.accountId === accountId) flows.savedIn += amount;
+        if (tx.fromAccountId === accountId) flows.savedOut += amount;
+        return;
+      }
+      if (tx.accountId !== accountId) return;
+      if (tx.direction === 'out') flows.savedOut += amount;
+      else flows.savedIn += amount;
+    });
+    return flows;
+  }
+
+  function accountBalance(accountId) {
+    var f = accountFlows(accountId);
+    return f.opening + f.income + f.savedIn - f.purchases - f.bills - f.savedOut - f.gold;
   }
 
   function totalSavings() {
     return sum(state.accounts, function (a) { return accountBalance(a.id); });
+  }
+
+  /* Only the pots. The current account holding this month's salary is a balance,
+     not savings, and mixing the two flatters the figure. */
+  function savingsBalance() {
+    return sum(state.accounts.filter(isSavingsAccount), function (a) { return accountBalance(a.id); });
+  }
+
+  /* Which way a movement pushes money relative to your savings. A transfer
+     between two pots, or between two spending accounts, is neither. */
+  function savingsMovement(tx) {
+    var amount = tx.amount || 0;
+    var to = byId('accounts', tx.accountId);
+    if (tx.direction === 'transfer') {
+      var from = byId('accounts', tx.fromAccountId);
+      var into = isSavingsAccount(to), outOf = isSavingsAccount(from);
+      if (into && !outOf) return { in: amount, out: 0 };
+      if (outOf && !into) return { in: 0, out: amount };
+      return { in: 0, out: 0 };
+    }
+    if (!isSavingsAccount(to)) return { in: 0, out: 0 };
+    return tx.direction === 'out' ? { in: 0, out: amount } : { in: amount, out: 0 };
+  }
+
+  /* ---------------------------------------------------------------- gold */
+
+  function goldIn(period) {
+    return state.gold.filter(function (r) { return periodOf(r.date) === period; });
+  }
+
+  /* What fraction of a gram is actually gold. 21k is 21 parts in 24. */
+  function goldPurity(karat) {
+    var k = Number(karat);
+    return (isFinite(k) && k > 0 ? k : 24) / 24;
+  }
+
+  /* The most recent daily snapshot, or null if the price has never synced. */
+  function latestGoldPrice() {
+    var latest = null;
+    state.goldPrices.forEach(function (p) {
+      if (!latest || String(p.date) > String(latest.date)) latest = p;
+    });
+    return latest;
+  }
+
+  /* Price of one gram, in minor units.
+     A price you typed in yourself is taken exactly as given — you read it off a
+     shop's board, so it already includes their margin. A synced price is the
+     world spot rate, which is the bourse figure rather than the counter figure,
+     so the premium setting is added to it. */
+  function goldPricePerGram(karat) {
+    var manual = Number(state.settings.goldManualPrice) || 0;
+    var base, premium;
+    if (manual > 0) {
+      base = manual;
+      premium = 1;
+    } else {
+      var snapshot = latestGoldPrice();
+      if (!snapshot) return 0;
+      base = snapshot.egpPerGram24 || 0;
+      premium = 1 + ((Number(state.settings.goldPremium) || 0) / 100);
+    }
+    return Math.round(base * premium * goldPurity(karat));
+  }
+
+  /* Spot price per gram of pure gold, in minor units, from usd/oz and the
+     pound rate. Kept here so the fetcher and the tests agree on the sum. */
+  function goldGramFromSpot(usdPerOz, egpPerUsd) {
+    var perGram = (Number(usdPerOz) / GRAMS_PER_OZ) * Number(egpPerUsd);
+    return isFinite(perGram) ? Math.round(perGram * 100) : 0;
+  }
+
+  /* One snapshot a day: same-day refreshes replace, so the history is a clean
+     daily series rather than one row per app launch. */
+  function recordGoldPrice(reading) {
+    var date = reading.date || todayISO();
+    var record = {
+      id: 'gpr_' + date,
+      date: date,
+      usdPerOz: Number(reading.usdPerOz) || 0,
+      egpPerUsd: Number(reading.egpPerUsd) || 0,
+      egpPerGram24: goldGramFromSpot(reading.usdPerOz, reading.egpPerUsd),
+      source: reading.source || '',
+      fetchedAt: new Date().toISOString()
+    };
+    var idx = state.goldPrices.findIndex(function (p) { return p.id === record.id; });
+    if (idx === -1) state.goldPrices.push(record);
+    else state.goldPrices[idx] = record;
+    // Two years of daily readings is plenty to chart against; older ones only
+    // grow the database.
+    if (state.goldPrices.length > 800) {
+      state.goldPrices = state.goldPrices
+        .slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+        .slice(-800);
+    }
+    save();
+    return record;
+  }
+
+  /* Grams held per karat, with what each pile is worth today. */
+  function goldHoldings() {
+    var byKarat = {};
+    state.gold.forEach(function (r) {
+      var karat = Number(r.karat) || 24;
+      var grams = Number(r.grams) || 0;
+      byKarat[karat] = (byKarat[karat] || 0) + (r.direction === 'sell' ? -grams : grams);
+    });
+    return Object.keys(byKarat)
+      .map(Number)
+      .sort(function (a, b) { return b - a; })
+      .map(function (karat) {
+        var grams = byKarat[karat];
+        return { karat: karat, grams: grams, value: Math.round(grams * goldPricePerGram(karat)) };
+      })
+      // Floating-point grams never land exactly on zero once you have sold some.
+      .filter(function (h) { return Math.abs(h.grams) > 1e-9; });
+  }
+
+  function goldValue() { return sum(goldHoldings(), function (h) { return h.value; }); }
+
+  /* Money actually put into gold: what you paid, less what selling gave back.
+     Against goldValue() this is the gain or loss. */
+  function goldInvested() {
+    return state.gold.reduce(function (total, r) {
+      var amount = r.amount || 0;
+      return total + (r.direction === 'sell' ? -amount : amount);
+    }, 0);
+  }
+
+  function goldSummary() {
+    var value = goldValue();
+    var invested = goldInvested();
+    return {
+      value: value,
+      invested: invested,
+      gain: value - invested,
+      gainRate: invested > 0 ? (value - invested) / invested : 0,
+      grams: sum(goldHoldings(), function (h) { return h.grams; }),
+      pure: sum(goldHoldings(), function (h) { return h.grams * goldPurity(h.karat); }),
+      price: latestGoldPrice(),
+      manual: (Number(state.settings.goldManualPrice) || 0) > 0
+    };
   }
 
   function summary(period) {
@@ -1411,8 +1751,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var billsPaid = sum(bills.filter(function (b) { return b.status === 'paid'; }), function (r) { return r.amount; });
     var purchases = sum(purchasesIn(period), function (r) { return r.amount; });
     var tx = savingsTxIn(period);
-    var savedIn = sum(tx.filter(function (t) { return t.direction === 'in'; }), function (t) { return t.amount; });
-    var savedOut = sum(tx.filter(function (t) { return t.direction === 'out'; }), function (t) { return t.amount; });
+    var savedIn = sum(tx, function (t) { return savingsMovement(t).in; });
+    var savedOut = sum(tx, function (t) { return savingsMovement(t).out; });
     var spent = billsTotal + purchases;
 
     return {
@@ -1449,6 +1789,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     state.income.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.purchases.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.savingsTx.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
+    state.gold.forEach(function (r) { if (r.date) set[periodOf(r.date)] = 1; });
     state.bills.forEach(function (r) { if (r.period) set[r.period] = 1; });
     set[currentPeriod()] = 1;
     return Object.keys(set).sort().reverse();
@@ -1502,8 +1843,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     PURCHASE_CATEGORIES: PURCHASE_CATEGORIES,
     PAYMENT_METHODS: PAYMENT_METHODS,
     ACCOUNT_TYPES: ACCOUNT_TYPES,
+    SAVINGS_TYPES: SAVINGS_TYPES,
     FREQUENCIES: FREQUENCIES,
     METERED: METERED,
+    GOLD_KARATS: GOLD_KARATS,
+    GRAMS_PER_OZ: GRAMS_PER_OZ,
 
     get state() { return state; },
     get storageAvailable() { return storageAvailable; },
@@ -1518,10 +1862,18 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     dueDateFor: dueDateFor, occursIn: occursIn,
 
     generateBills: generateBills, generateIncome: generateIncome, catchUp: catchUp,
+    linkGeneratedTo: linkGeneratedTo,
     billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
     normalizeBill: normalizeBill, looksLikeBackup: looksLikeBackup,
     incomeIn: incomeIn, purchasesIn: purchasesIn, billsIn: billsIn, savingsTxIn: savingsTxIn,
-    accountBalance: accountBalance, totalSavings: totalSavings,
+    accountBalance: accountBalance, accountFlows: accountFlows, totalSavings: totalSavings,
+    savingsBalance: savingsBalance, savingsMovement: savingsMovement, isSavingsAccount: isSavingsAccount,
+
+    goldIn: goldIn, goldPurity: goldPurity, goldPricePerGram: goldPricePerGram,
+    goldGramFromSpot: goldGramFromSpot, recordGoldPrice: recordGoldPrice,
+    latestGoldPrice: latestGoldPrice, goldHoldings: goldHoldings, goldValue: goldValue,
+    goldInvested: goldInvested, goldSummary: goldSummary,
+
     summary: summary, groupByCategory: groupByCategory, activePeriods: activePeriods,
     trend: trend, upcomingBills: upcomingBills, sortByDateDesc: sortByDateDesc, sum: sum,
 
@@ -1612,18 +1964,22 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   /* Column lists double as the object<->row mapping, so there is exactly one
      place to change when a field is added. */
   var TABLES = {
-    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'method', 'notes'],
-    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
-    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
-    bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
-    purchases: ['id', 'date', 'item', 'category', 'amount', 'method', 'notes'],
+    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'accountId', 'method', 'notes'],
+    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'accountId', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
+    purchases: ['id', 'date', 'item', 'category', 'amount', 'accountId', 'method', 'notes'],
     accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
-    savingsTx: ['id', 'date', 'accountId', 'direction', 'amount', 'notes']
+    savingsTx: ['id', 'date', 'accountId', 'fromAccountId', 'direction', 'amount', 'notes'],
+    gold: ['id', 'date', 'direction', 'karat', 'grams', 'pricePerGram', 'amount', 'accountId', 'dealer', 'notes'],
+    goldPrices: ['id', 'date', 'usdPerOz', 'egpPerUsd', 'egpPerGram24', 'source', 'fetchedAt']
   };
 
   var TYPES = {
     amount: 'INTEGER', expected: 'INTEGER', target: 'INTEGER', opening: 'INTEGER',
-    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
+    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL',
+    karat: 'INTEGER', grams: 'REAL', pricePerGram: 'INTEGER',
+    usdPerOz: 'REAL', egpPerUsd: 'REAL', egpPerGram24: 'INTEGER'
   };
 
   var SCHEMA = (function () {
@@ -1639,6 +1995,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     stmts.push('CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(date)');
     stmts.push('CREATE INDEX IF NOT EXISTS idx_bills_period ON bills(period)');
     stmts.push('CREATE INDEX IF NOT EXISTS idx_savings_date ON savingsTx(date)');
+    stmts.push('CREATE INDEX IF NOT EXISTS idx_gold_date ON gold(date)');
+    stmts.push('CREATE INDEX IF NOT EXISTS idx_goldprices_date ON goldPrices(date)');
     return stmts;
   }());
 
@@ -1813,6 +2171,601 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   };
 }(typeof globalThis !== 'undefined' ? globalThis : this));
 
+/* ---- gold.js ---- */
+/* gold.js — the one thing in this app that touches the network.
+   Attaches globalThis.GoldPrice. Depends on Store.
+
+   Gold is quoted worldwide in US dollars per troy ounce, so the Egyptian price
+   per gram is that figure divided by 31.1034768 and multiplied by the pound
+   rate. Two small public endpoints supply the two numbers; both send
+   Access-Control-Allow-Origin: *, which is what makes this work from a file://
+   page at all — verified against the live services, not assumed.
+
+   Everything here is optional and failure is quiet. No reading is ever thrown
+   away because a later fetch failed: the last good snapshot stays on screen
+   with the date it was taken, and a price you type in yourself always wins. */
+(function (root) {
+  'use strict';
+
+  var S = root.Store;
+
+  var SPOT_URL = 'https://api.gold-api.com/price/XAU';
+  /* Two rate services, tried in order. The second is the same provider's older
+     endpoint, which is worth having when the first is rate-limited. */
+  var RATE_URLS = [
+    'https://open.er-api.com/v6/latest/USD',
+    'https://api.exchangerate-api.com/v4/latest/USD'
+  ];
+  var TIMEOUT_MS = 9000;
+
+  /* One automatic attempt per session. Without this, a machine that is offline
+     re-tries on every render that asks whether a sync is due. */
+  var attempted = false;
+  var busy = false;
+  var lastError = null;
+
+  function fetchJSON(url) {
+    if (typeof root.fetch !== 'function') return Promise.reject(new Error('This browser cannot fetch prices.'));
+    var controller = typeof root.AbortController === 'function' ? new root.AbortController() : null;
+    var timer = root.setTimeout(function () { if (controller) controller.abort(); }, TIMEOUT_MS);
+    return root.fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined
+    }).then(function (res) {
+      if (!res.ok) throw new Error('The price service answered ' + res.status + '.');
+      return res.json();
+    }).then(function (json) {
+      root.clearTimeout(timer);
+      return json;
+    }, function (err) {
+      root.clearTimeout(timer);
+      throw new Error(err && err.name === 'AbortError' ? 'The price service did not answer in time.' : 'Could not reach the price service.');
+    });
+  }
+
+  function fetchSpot() {
+    return fetchJSON(SPOT_URL).then(function (json) {
+      var price = Number(json && json.price);
+      if (!isFinite(price) || price <= 0) throw new Error('The gold price came back unreadable.');
+      return price;
+    });
+  }
+
+  /* Walks the rate services until one answers with a pound rate. */
+  function fetchRate(index) {
+    var i = index || 0;
+    if (i >= RATE_URLS.length) return Promise.reject(new Error('Could not reach a currency service.'));
+    return fetchJSON(RATE_URLS[i]).then(function (json) {
+      var rate = Number(json && json.rates && json.rates.EGP);
+      if (!isFinite(rate) || rate <= 0) throw new Error('no EGP rate');
+      return rate;
+    }).catch(function () { return fetchRate(i + 1); });
+  }
+
+  /* True when today has no reading yet. "Once a day is enough" is the whole
+     specification, so anything newer than midnight counts as current. */
+  function isDue() {
+    if (S.state.settings.goldSync === false) return false;
+    var latest = S.latestGoldPrice();
+    return !latest || String(latest.date) < S.todayISO();
+  }
+
+  /* The manual and automatic paths differ in one way only: a manual refresh
+     always goes out, an automatic one gives up for the session after a miss. */
+  function refresh(options) {
+    var opts = options || {};
+    if (busy) return Promise.resolve({ ok: false, busy: true });
+    if (!opts.manual) {
+      if (attempted || !isDue()) return Promise.resolve({ ok: false, skipped: true });
+      attempted = true;
+    }
+    busy = true;
+    lastError = null;
+
+    /* Both go out together, but a failure on one side must not discard the
+       other: an unreachable currency service should still leave the gold price
+       fresh, valued at yesterday's rate. */
+    return Promise.all([
+      fetchSpot().then(function (v) { return { ok: true, value: v }; },
+        function (e) { return { ok: false, error: e }; }),
+      fetchRate().then(function (v) { return { ok: true, value: v }; },
+        function (e) { return { ok: false, error: e }; })
+    ]).then(function (results) {
+      busy = false;
+      var spot = results[0];
+      var rate = results[1];
+      var previous = S.latestGoldPrice();
+
+      var usdPerOz = spot.ok ? spot.value : (previous ? previous.usdPerOz : 0);
+      var egpPerUsd = rate.ok ? rate.value : (previous ? previous.egpPerUsd : 0);
+
+      if (!usdPerOz || !egpPerUsd) {
+        lastError = (spot.ok ? rate.error : spot.error).message;
+        return { ok: false, error: lastError };
+      }
+
+      var parts = [];
+      if (spot.ok) parts.push('gold-api.com');
+      if (rate.ok) parts.push('exchangerate-api.com');
+      var record = S.recordGoldPrice({
+        usdPerOz: usdPerOz,
+        egpPerUsd: egpPerUsd,
+        source: parts.length === 2 ? 'world spot × USD/EGP' : 'partial (' + parts.join(', ') + ')'
+      });
+
+      if (!spot.ok || !rate.ok) lastError = (spot.ok ? rate.error : spot.error).message;
+      return { ok: true, partial: !spot.ok || !rate.ok, record: record, error: lastError };
+    }).catch(function (err) {
+      busy = false;
+      lastError = err.message;
+      return { ok: false, error: lastError };
+    });
+  }
+
+  root.GoldPrice = {
+    refresh: refresh,
+    isDue: isDue,
+    get busy() { return busy; },
+    get lastError() { return lastError; }
+  };
+}(typeof globalThis !== 'undefined' ? globalThis : this));
+
+/* ---- datepicker.js ---- */
+/* datepicker.js — a date field that behaves the same in every browser.
+   Attaches globalThis.DatePicker. Depends on Store for the locale only.
+
+   The native <input type="date"> is not used anywhere in this app: its layout,
+   its keyboard behaviour and its calendar are the browser's, they differ
+   between Chrome and Edge, and the field order it imposes is not the one
+   Egyptian dates are written in. This is a plain text input that accepts
+   day/month/year the way people actually type it — 5/8, 5-8-26, 05082026,
+   2026-08-05, or just 5 for the fifth of the month on screen — with a calendar
+   hanging off it for the times you would rather look than type.
+
+   The value the rest of the app sees is always an ISO YYYY-MM-DD string, or ''
+   for empty, held on a hidden input so that form reading stays unchanged. */
+(function (root) {
+  'use strict';
+
+  var doc = root.document;
+
+  /* Saturday. The working week here runs Sunday to Thursday, so a calendar
+     that starts on Monday puts the weekend in the middle of the row. */
+  var WEEK_START = 6;
+
+  var MS_DAY = 86400000;
+  var open = null;   // only ever one calendar on screen
+
+  /* ------------------------------------------------------------ date maths */
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function iso(y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+  function todayISO() { var d = new Date(); return iso(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+
+  function toParts(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    if (!m) return null;
+    var y = +m[1], mo = +m[2] - 1, d = +m[3];
+    if (mo < 0 || mo > 11 || d < 1 || d > daysInMonth(y, mo)) return null;
+    return { y: y, m: mo, d: d };
+  }
+
+  function shiftDays(value, delta) {
+    var p = toParts(value);
+    if (!p) return value;
+    var t = new Date(p.y, p.m, p.d).getTime() + (delta * MS_DAY);
+    var d = new Date(t);
+    return iso(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  /* Month arithmetic clamps rather than rolling over, so 31 January minus a
+     month is 28 February and not the 3rd of March. */
+  function shiftMonths(value, delta) {
+    var p = toParts(value);
+    if (!p) return value;
+    var y = p.y, m = p.m + delta;
+    y += Math.floor(m / 12);
+    m = ((m % 12) + 12) % 12;
+    return iso(y, m, Math.min(p.d, daysInMonth(y, m)));
+  }
+
+  function locale() {
+    return (root.Store && root.Store.state.settings.locale) || 'en-GB';
+  }
+
+  function monthTitle(y, m) {
+    try {
+      return new Date(y, m, 1).toLocaleDateString(locale(), { month: 'long', year: 'numeric' });
+    } catch (e) {
+      return (m + 1) + '/' + y;
+    }
+  }
+
+  function weekdayLabels() {
+    var out = [];
+    for (var i = 0; i < 7; i++) {
+      // 7 Jan 2024 was a Sunday, so this walks a real week from the start day.
+      var d = new Date(2024, 0, 7 + ((WEEK_START + i) % 7));
+      var label;
+      try { label = d.toLocaleDateString(locale(), { weekday: 'short' }); }
+      catch (e) { label = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][d.getDay()]; }
+      out.push(label.slice(0, 2));
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------ text <-> iso */
+
+  function display(value) {
+    var p = toParts(value);
+    return p ? pad2(p.d) + '/' + pad2(p.m + 1) + '/' + p.y : '';
+  }
+
+  function fourDigit(year) {
+    if (year >= 100) return year;
+    // A two-digit year is this century unless that would be far in the future.
+    var century = Math.floor(new Date().getFullYear() / 100) * 100;
+    var full = century + year;
+    return full - new Date().getFullYear() > 20 ? full - 100 : full;
+  }
+
+  function make(y, m, d) {
+    if (m < 1 || m > 12) return null;
+    if (d < 1 || d > daysInMonth(y, m - 1)) return null;
+    return iso(y, m - 1, d);
+  }
+
+  /* Reads whatever was typed. `context` is the month on screen, so a bare day
+     number means that month — the common case when correcting one entry. */
+  function parseTyped(text, context) {
+    var raw = String(text == null ? '' : text).trim();
+    if (!raw) return '';
+
+    var base = toParts(context) || toParts(todayISO());
+    var m;
+
+    m = /^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/.exec(raw);
+    if (m) return make(+m[1], +m[2], +m[3]);
+
+    m = /^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})$/.exec(raw);
+    if (m) return make(fourDigit(+m[3]), +m[2], +m[1]);
+
+    m = /^(\d{1,2})[-/. ](\d{1,2})$/.exec(raw);
+    if (m) return make(base.y, +m[2], +m[1]);
+
+    m = /^(\d{2})(\d{2})(\d{4})$/.exec(raw);        // 05082026
+    if (m) return make(+m[3], +m[2], +m[1]);
+
+    m = /^(\d{2})(\d{2})(\d{2})$/.exec(raw);        // 050826
+    if (m) return make(fourDigit(+m[3]), +m[2], +m[1]);
+
+    m = /^(\d{1,2})$/.exec(raw);                    // just a day
+    if (m) return make(base.y, base.m + 1, +m[1]);
+
+    return null;                                    // unreadable
+  }
+
+  /* ---------------------------------------------------------------- element */
+
+  function el(tag, props, children) {
+    var node = doc.createElement(tag);
+    Object.keys(props || {}).forEach(function (key) {
+      var value = props[key];
+      if (value === null || value === undefined || value === false) return;
+      if (key === 'class') node.className = value;
+      else if (key === 'text') node.textContent = value;
+      else if (key.slice(0, 2) === 'on') node.addEventListener(key.slice(2).toLowerCase(), value);
+      else if (value === true) node.setAttribute(key, '');
+      else node.setAttribute(key, value);
+    });
+    (Array.isArray(children) ? children : [children]).forEach(function (c) {
+      if (c === null || c === undefined || c === false) return;
+      node.appendChild(c.nodeType ? c : doc.createTextNode(String(c)));
+    });
+    return node;
+  }
+
+  function closeOpen() { if (open) open(); }
+
+  /* ----------------------------------------------------------------- create */
+
+  /* Returns { node, value, focus } — `node` goes in the form, `value` is the
+     hidden input carrying the ISO string. */
+  function create(options) {
+    var opts = options || {};
+    var current = toParts(opts.value) ? opts.value : '';
+
+    var hidden = el('input', { type: 'hidden', name: opts.name || '' });
+    hidden.value = current;
+
+    var text = el('input', {
+      type: 'text', class: 'dp-text', autocomplete: 'off', spellcheck: 'false',
+      inputmode: 'numeric', placeholder: 'dd/mm/yyyy',
+      'aria-label': opts.label || 'Date',
+      title: 'Type 5/8, 5-8-26 or 2026-08-05 — or pick from the calendar'
+    });
+    text.value = display(current);
+    if (opts.id) text.setAttribute('id', opts.id);
+
+    var button = el('button', {
+      type: 'button', class: 'dp-button', 'aria-label': 'Open calendar', 'aria-haspopup': 'dialog',
+      'aria-expanded': 'false'
+    }, [icon()]);
+
+    var node = el('div', { class: 'dp' }, [text, button, hidden]);
+
+    function icon() {
+      var svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 16 16');
+      svg.setAttribute('width', '15'); svg.setAttribute('height', '15');
+      svg.setAttribute('aria-hidden', 'true');
+      var path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M4.5 1v2M11.5 1v2M1.5 5.5h13M2.5 3h11a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '1.2');
+      path.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(path);
+      return svg;
+    }
+
+    function set(value, notify) {
+      current = value || '';
+      hidden.value = current;
+      text.value = display(current);
+      if (notify !== false && opts.onChange) opts.onChange(current);
+    }
+
+    /* What the typed text means, committed when focus leaves or Enter is
+       pressed. Unreadable text is put back to the last good value rather than
+       silently saved as nothing. */
+    function commitTyped() {
+      var parsed = parseTyped(text.value, current || todayISO());
+      if (parsed === null) { text.value = display(current); return false; }
+      set(parsed);
+      return true;
+    }
+
+    text.addEventListener('blur', function () {
+      // Leaving for the calendar button is not leaving the field.
+      if (open && node.contains(doc.activeElement)) return;
+      commitTyped();
+    });
+    text.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitTyped(); closeOpen(); }
+      else if (e.key === 'ArrowDown' && !open) { e.preventDefault(); openCalendar(); }
+      else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        // Nudging the date without opening anything: the fastest correction.
+        if (!open) {
+          e.preventDefault();
+          var from = current || todayISO();
+          set(shiftDays(from, e.key === 'ArrowUp' ? 1 : -1));
+        }
+      } else if (e.key === 'Escape' && open) { closeOpen(); }
+    });
+
+    button.addEventListener('click', function () {
+      if (open) { closeOpen(); return; }
+      commitTyped();
+      openCalendar();
+    });
+
+    /* ------------------------------------------------------------- calendar */
+
+    function openCalendar() {
+      closeOpen();
+
+      var cursor = current || todayISO();
+      var showing = toParts(cursor);
+      var year = showing.y, month = showing.m;
+      var mode = 'days';
+
+      var pop = el('div', {
+        class: 'dp-pop', role: 'dialog', 'aria-label': 'Choose a date', 'aria-modal': 'false'
+      });
+
+      /* A modal <dialog> paints in the top layer, above anything appended to
+         the body, and .dialog-body clips to its own scroll box — so the panel
+         is fixed-positioned inside the nearest dialog when there is one. */
+      var host = text.closest ? (text.closest('dialog') || doc.body) : doc.body;
+      host.appendChild(pop);
+      button.setAttribute('aria-expanded', 'true');
+
+      function place() {
+        var r = text.getBoundingClientRect();
+        pop.style.visibility = 'hidden';
+        var w = pop.offsetWidth, h = pop.offsetHeight;
+        var left = Math.max(8, Math.min(r.left, root.innerWidth - w - 8));
+        var top = r.bottom + 6;
+        if (top + h > root.innerHeight - 8) {
+          var above = r.top - 6 - h;
+          top = above >= 8 ? above : Math.max(8, root.innerHeight - h - 8);
+        }
+        pop.style.left = Math.round(left) + 'px';
+        pop.style.top = Math.round(top) + 'px';
+        pop.style.visibility = '';
+      }
+
+      function choose(value) {
+        set(value);
+        close();
+        text.focus();
+      }
+
+      function moveTo(value, redraw) {
+        cursor = value;
+        var p = toParts(cursor);
+        if (p.y !== year || p.m !== month || redraw) { year = p.y; month = p.m; }
+        draw();
+        var active = pop.querySelector('.dp-day.is-cursor');
+        if (active) active.focus();
+      }
+
+      function drawDays() {
+        var first = new Date(year, month, 1).getDay();
+        var lead = (first - WEEK_START + 7) % 7;
+        var total = daysInMonth(year, month);
+        var today = todayISO();
+
+        var cells = weekdayLabels().map(function (label) {
+          return el('div', { class: 'dp-dow', text: label, 'aria-hidden': 'true' });
+        });
+
+        for (var i = 0; i < lead; i++) cells.push(el('div', { class: 'dp-pad' }));
+        for (var day = 1; day <= total; day++) {
+          (function (d) {
+            var value = iso(year, month, d);
+            cells.push(el('button', {
+              type: 'button',
+              class: 'dp-day'
+                + (value === current ? ' is-selected' : '')
+                + (value === cursor ? ' is-cursor' : '')
+                + (value === today ? ' is-today' : ''),
+              tabindex: value === cursor ? '0' : '-1',
+              'aria-selected': value === current ? 'true' : 'false',
+              text: String(d),
+              onclick: function () { choose(value); }
+            }));
+          }(day));
+        }
+
+        return el('div', { class: 'dp-grid' }, cells);
+      }
+
+      function drawMonths() {
+        var cells = [];
+        for (var m = 0; m < 12; m++) {
+          (function (index) {
+            var label;
+            try { label = new Date(year, index, 1).toLocaleDateString(locale(), { month: 'short' }); }
+            catch (e) { label = String(index + 1); }
+            cells.push(el('button', {
+              type: 'button',
+              class: 'dp-month' + (index === month ? ' is-selected' : ''),
+              text: label,
+              onclick: function () {
+                month = index;
+                mode = 'days';
+                cursor = iso(year, month, Math.min(toParts(cursor).d, daysInMonth(year, month)));
+                draw();
+                var active = pop.querySelector('.dp-day.is-cursor');
+                if (active) active.focus();
+              }
+            }));
+          }(m));
+        }
+        return el('div', { class: 'dp-months' }, cells);
+      }
+
+      function draw() {
+        while (pop.firstChild) pop.removeChild(pop.firstChild);
+
+        var step = mode === 'days' ? 'month' : 'year';
+        append(el('div', { class: 'dp-head' }, [
+          el('button', {
+            type: 'button', class: 'dp-nav', 'aria-label': 'Previous ' + step, text: '‹',
+            onclick: function () { stepBy(-1); }
+          }),
+          el('button', {
+            type: 'button', class: 'dp-title',
+            'aria-label': 'Switch between months and days',
+            text: mode === 'days' ? monthTitle(year, month) : String(year),
+            onclick: function () { mode = mode === 'days' ? 'months' : 'days'; draw(); }
+          }),
+          el('button', {
+            type: 'button', class: 'dp-nav', 'aria-label': 'Next ' + step, text: '›',
+            onclick: function () { stepBy(1); }
+          })
+        ]));
+
+        append(mode === 'days' ? drawDays() : drawMonths());
+
+        append(el('div', { class: 'dp-foot' }, [
+          el('button', { type: 'button', class: 'dp-quick', text: 'Today', onclick: function () { choose(todayISO()); } }),
+          el('div', { class: 'dp-hint', text: 'Arrows move · Enter picks' }),
+          opts.required ? null : el('button', {
+            type: 'button', class: 'dp-quick', text: 'Clear', onclick: function () { choose(''); }
+          })
+        ]));
+
+        place();
+      }
+
+      function append(child) { if (child) pop.appendChild(child); }
+
+      function stepBy(delta) {
+        if (mode === 'days') {
+          cursor = shiftMonths(cursor, delta);
+          var p = toParts(cursor);
+          year = p.y; month = p.m;
+        } else {
+          year += delta;
+        }
+        draw();
+      }
+
+      /* Grid keyboard model, the same one every desktop calendar uses. */
+      pop.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(); text.focus(); return; }
+        if (mode !== 'days') return;
+        var delta = 0;
+        if (e.key === 'ArrowLeft') delta = -1;
+        else if (e.key === 'ArrowRight') delta = 1;
+        else if (e.key === 'ArrowUp') delta = -7;
+        else if (e.key === 'ArrowDown') delta = 7;
+        else if (e.key === 'Home') delta = -((new Date(toParts(cursor).y, toParts(cursor).m, toParts(cursor).d).getDay() - WEEK_START + 7) % 7);
+        else if (e.key === 'End') delta = 6 - ((new Date(toParts(cursor).y, toParts(cursor).m, toParts(cursor).d).getDay() - WEEK_START + 7) % 7);
+        else if (e.key === 'PageUp') { e.preventDefault(); moveTo(shiftMonths(cursor, e.shiftKey ? -12 : -1)); return; }
+        else if (e.key === 'PageDown') { e.preventDefault(); moveTo(shiftMonths(cursor, e.shiftKey ? 12 : 1)); return; }
+        else return;
+        e.preventDefault();
+        moveTo(shiftDays(cursor, delta));
+      });
+
+      function onOutside(e) {
+        if (pop.contains(e.target) || node.contains(e.target)) return;
+        close();
+      }
+      function reposition() { if (pop.isConnected) place(); }
+
+      doc.addEventListener('pointerdown', onOutside, true);
+      root.addEventListener('resize', reposition);
+      root.addEventListener('scroll', reposition, true);
+
+      function close() {
+        doc.removeEventListener('pointerdown', onOutside, true);
+        root.removeEventListener('resize', reposition);
+        root.removeEventListener('scroll', reposition, true);
+        if (pop.parentNode) pop.parentNode.removeChild(pop);
+        button.setAttribute('aria-expanded', 'false');
+        if (open === close) open = null;
+      }
+
+      open = close;
+      draw();
+      var focusFirst = pop.querySelector('.dp-day.is-cursor') || pop.querySelector('.dp-title');
+      if (focusFirst) focusFirst.focus();
+    }
+
+    return {
+      node: node,
+      value: hidden,
+      input: text,
+      focus: function () { text.focus(); text.select(); },
+      set: function (v) { set(v, false); }
+    };
+  }
+
+  root.DatePicker = {
+    create: create,
+    parse: parseTyped,
+    display: display,
+    close: closeOpen
+  };
+}(typeof globalThis !== 'undefined' ? globalThis : this));
+
 /* ---- export.js ---- */
 /* export.js — turns the store into a multi-sheet workbook.
    Attaches globalThis.Exporter. Depends on Store and XLSXMini. */
@@ -1826,6 +2779,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   var bold = function (v) { return { v: v, s: 'bold' }; };
 
   function headerRow(labels) { return labels.map(head); }
+
+  function accountName(id) {
+    var account = S.byId('accounts', id);
+    return account ? account.name : '';
+  }
 
   /* SUM over a column, or a literal 0 when there is nothing to sum. */
   function columnTotal(col, firstRow, lastRow, cachedCents) {
@@ -1847,6 +2805,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         bills: st.bills.slice(),
         purchases: st.purchases.slice(),
         savingsTx: st.savingsTx.slice(),
+        gold: st.gold.slice(),
         periods: S.activePeriods().slice().sort()
       };
     }
@@ -1858,6 +2817,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         bills: st.bills.filter(function (r) { return String(r.period || '').slice(0, 4) === yr; }),
         purchases: st.purchases.filter(function (r) { return inYear(r.date); }),
         savingsTx: st.savingsTx.filter(function (r) { return inYear(r.date); }),
+        gold: st.gold.filter(function (r) { return inYear(r.date); }),
         periods: S.activePeriods().filter(function (p) { return p.slice(0, 4) === yr; }).sort()
       };
     }
@@ -1865,6 +2825,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return {
       income: S.incomeIn(p), bills: S.billsIn(p),
       purchases: S.purchasesIn(p), savingsTx: S.savingsTxIn(p),
+      gold: S.goldIn(p),
       periods: [p]
     };
   }
@@ -1879,20 +2840,22 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   /* The Recurring column is appended, not inserted: Amount stays in column D,
      which the Summary sheet and the total below both address by letter. */
+  /* Account is appended rather than inserted, for the same reason Recurring
+     was: Amount stays in column D, which the Summary sheet addresses by letter. */
   function incomeSheet(records) {
-    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring'])];
+    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring', 'Paid Into'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
       rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
-        r.templateId ? 'Yes' : '']);
+        r.templateId ? 'Yes' : '', accountName(r.accountId)]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
-    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null]);
+    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null, null]);
     return {
       name: 'Income', freeze: 1,
-      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }],
+      autoFilter: sorted.length ? 'A1:H' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }, { w: 18 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
@@ -1924,7 +2887,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function billsSheet(records) {
     var rows = [headerRow(['Period', 'Due Date', 'Bill', 'Category', 'Provider', 'Amount',
-      'Units Used', 'Unit', 'Rate / Unit', 'Status', 'Paid Date', 'Method', 'Notes'])];
+      'Units Used', 'Unit', 'Rate / Unit', 'Status', 'Paid Date', 'Method', 'Notes', 'Paid From'])];
     var sorted = records.slice().sort(function (a, b) {
       return String(a.period + a.dueDate).localeCompare(String(b.period + b.dueDate));
     });
@@ -1937,7 +2900,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         unit,
         (b.unitRate === null || b.unitRate === undefined || b.unitRate === '') ? null : { t: 'number', v: Number(b.unitRate) },
         b.status === 'paid' ? 'Paid' : (S.billIsOverdue(b) ? 'OVERDUE' : 'Unpaid'),
-        date(b.paidDate), b.method || '', b.notes || ''
+        date(b.paidDate), b.method || '', b.notes || '', accountName(b.accountId)
       ]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
@@ -1948,9 +2911,9 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     rows.push([bold('Outstanding'), null, null, null, null, { t: 'money', v: (total - paid) / 100, s: 'moneyBold' }]);
     return {
       name: 'Bills', freeze: 1,
-      autoFilter: sorted.length ? 'A1:M' + (sorted.length + 1) : null,
+      autoFilter: sorted.length ? 'A1:N' + (sorted.length + 1) : null,
       cols: [{ w: 10 }, { w: 12 }, { w: 22 }, { w: 16 }, { w: 18 }, { w: 14 }, { w: 12 }, { w: 8 },
-        { w: 12 }, { w: 11 }, { w: 12 }, { w: 15 }, { w: 28 }],
+        { w: 12 }, { w: 11 }, { w: 12 }, { w: 15 }, { w: 28 }, { w: 18 }],
       rows: rows, _total: total, _paid: paid, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
@@ -1980,65 +2943,141 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   }
 
   function purchasesSheet(records) {
-    var rows = [headerRow(['Date', 'Item', 'Category', 'Amount', 'Method', 'Notes'])];
+    var rows = [headerRow(['Date', 'Item', 'Category', 'Amount', 'Method', 'Notes', 'Paid From'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
-      rows.push([date(r.date), r.item || '', r.category || '', money(r.amount), r.method || '', r.notes || '']);
+      rows.push([date(r.date), r.item || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
+        accountName(r.accountId)]);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
     rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total)]);
     return {
       name: 'Purchases', freeze: 1,
-      autoFilter: sorted.length ? 'A1:F' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 28 }, { w: 18 }, { w: 14 }, { w: 16 }, { w: 30 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 28 }, { w: 18 }, { w: 14 }, { w: 16 }, { w: 30 }, { w: 18 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
     };
   }
 
+  /* Column F stays Current Balance: the Summary sheet sums it by letter.
+     Paid In and Withdrawn now cover every flow that touches the account, not
+     only the movements you recorded by hand, or the columns would not add up
+     to the balance beside them. */
   function accountsSheet() {
-    var rows = [headerRow(['Account', 'Type', 'Opening Balance', 'Paid In', 'Withdrawn', 'Current Balance', 'Target', 'Progress', 'Notes'])];
+    var rows = [headerRow(['Account', 'Type', 'Opening Balance', 'Paid In', 'Withdrawn', 'Current Balance',
+      'Target', 'Progress', 'Notes', 'Income', 'Purchases', 'Bills Paid', 'Gold', 'Moved In', 'Moved Out'])];
     var st = S.state;
     st.accounts.forEach(function (a) {
-      var inSum = S.sum(st.savingsTx.filter(function (t) { return t.accountId === a.id && t.direction === 'in'; }), function (t) { return t.amount; });
-      var outSum = S.sum(st.savingsTx.filter(function (t) { return t.accountId === a.id && t.direction === 'out'; }), function (t) { return t.amount; });
+      var f = S.accountFlows(a.id);
       var balance = S.accountBalance(a.id);
       rows.push([
-        a.name || '', a.type || '', money(a.opening), money(inSum), money(outSum), money(balance),
+        a.name || '', a.type || '', money(a.opening),
+        money(f.income + f.savedIn),
+        money(f.purchases + f.bills + f.savedOut + f.gold),
+        money(balance),
         a.target ? money(a.target) : null,
         a.target ? { t: 'percent', v: balance / a.target } : null,
-        a.notes || ''
+        a.notes || '',
+        money(f.income), money(f.purchases), money(f.bills), money(f.gold),
+        money(f.savedIn), money(f.savedOut)
       ]);
     });
     var total = S.totalSavings();
     rows.push([]);
-    rows.push([bold('Total savings'), null, null, null, null, columnTotal('F', 2, st.accounts.length + 1, total)]);
+    rows.push([bold('Across all accounts'), null, null, null, null, columnTotal('F', 2, st.accounts.length + 1, total)]);
+    rows.push([bold('Of which savings pots'), null, null, null, null,
+      { t: 'money', v: S.savingsBalance() / 100, s: 'moneyBold' }]);
     return {
       name: 'Savings Accounts', freeze: 1,
-      cols: [{ w: 24 }, { w: 16 }, { w: 16 }, { w: 14 }, { w: 14 }, { w: 17 }, { w: 14 }, { w: 11 }, { w: 28 }],
+      cols: [{ w: 24 }, { w: 16 }, { w: 16 }, { w: 14 }, { w: 14 }, { w: 17 }, { w: 14 }, { w: 11 }, { w: 28 },
+        { w: 14 }, { w: 14 }, { w: 14 }, { w: 12 }, { w: 13 }, { w: 13 }],
       rows: rows, _total: total
     };
   }
 
+  function movementLabel(t) {
+    if (t.direction === 'transfer') return 'Transfer';
+    return t.direction === 'out' ? 'Withdrawal' : 'Deposit';
+  }
+
   function savingsTxSheet(records) {
-    var rows = [headerRow(['Date', 'Account', 'Direction', 'Amount', 'Notes'])];
+    var rows = [headerRow(['Date', 'Account', 'Direction', 'Amount', 'Notes', 'From Account', 'Counts As Saving'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (t) {
-      var account = S.byId('accounts', t.accountId);
-      rows.push([date(t.date), account ? account.name : '(deleted account)',
-        t.direction === 'out' ? 'Withdrawal' : 'Deposit', money(t.amount), t.notes || '']);
+      var move = S.savingsMovement(t);
+      rows.push([date(t.date), accountName(t.accountId) || '(deleted account)',
+        movementLabel(t), money(t.amount), t.notes || '',
+        t.direction === 'transfer' ? (accountName(t.fromAccountId) || '(deleted account)') : '',
+        move.in ? 'In' : (move.out ? 'Out' : 'No')]);
     });
-    var inSum = S.sum(sorted.filter(function (t) { return t.direction === 'in'; }), function (t) { return t.amount; });
-    var outSum = S.sum(sorted.filter(function (t) { return t.direction === 'out'; }), function (t) { return t.amount; });
+    // Moving money between two of your own pots is not saving more of it, so
+    // the totals count only what crossed the line into or out of savings.
+    var inSum = S.sum(sorted, function (t) { return S.savingsMovement(t).in; });
+    var outSum = S.sum(sorted, function (t) { return S.savingsMovement(t).out; });
     rows.push([]);
-    rows.push([bold('Deposited'), null, null, { t: 'money', v: inSum / 100, s: 'moneyBold' }]);
-    rows.push([bold('Withdrawn'), null, null, { t: 'money', v: outSum / 100, s: 'moneyBold' }]);
+    rows.push([bold('Into savings'), null, null, { t: 'money', v: inSum / 100, s: 'moneyBold' }]);
+    rows.push([bold('Out of savings'), null, null, { t: 'money', v: outSum / 100, s: 'moneyBold' }]);
     rows.push([bold('Net saved'), null, null, { t: 'money', v: (inSum - outSum) / 100, s: 'moneyBold' }]);
     return {
       name: 'Savings Transactions', freeze: 1,
-      autoFilter: sorted.length ? 'A1:E' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 13 }, { w: 14 }, { w: 32 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 13 }, { w: 14 }, { w: 32 }, { w: 24 }, { w: 16 }],
       rows: rows, _in: inSum, _out: outSum
+    };
+  }
+
+  /* Gold: what was bought and sold, what is left, and the daily price series
+     the valuation is built on — so the workbook stands on its own. */
+  function goldSheet(records) {
+    var rows = [headerRow(['Date', 'Bought / Sold', 'Karat', 'Grams', 'Amount', 'Price / Gram',
+      'Paid From', 'Shop', 'Notes'])];
+    var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    sorted.forEach(function (r, i) {
+      var grams = Number(r.grams) || 0;
+      var line = i + 2;
+      rows.push([
+        date(r.date), r.direction === 'sell' ? 'Sold' : 'Bought',
+        { t: 'int', v: Number(r.karat) || 24 },
+        grams ? { t: 'number', v: grams } : null,
+        money(r.amount),
+        grams ? { t: 'formula', f: 'IF(D' + line + '=0,"",E' + line + '/D' + line + ')', v: (r.amount / 100) / grams, s: 'money' } : null,
+        accountName(r.accountId), r.dealer || '', r.notes || ''
+      ]);
+    });
+    if (!sorted.length) {
+      rows.push([{ v: 'No gold recorded in this period.', s: 'muted' }]);
+    }
+
+    var summary = S.goldSummary();
+    rows.push([]);
+    rows.push([{ v: 'Held now (all time)', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' },
+      { v: '', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    rows.push([head('Karat'), head('Grams'), head('Price / Gram'), head('Worth')]);
+    S.goldHoldings().forEach(function (h) {
+      rows.push([{ t: 'int', v: h.karat }, { t: 'number', v: h.grams },
+        money(S.goldPricePerGram(h.karat)), money(h.value)]);
+    });
+    rows.push([bold('Total worth'), null, null, { t: 'money', v: summary.value / 100, s: 'moneyBold' }]);
+    rows.push([bold('Paid for it'), null, null, { t: 'money', v: summary.invested / 100, s: 'moneyBold' }]);
+    rows.push([bold(summary.gain >= 0 ? 'Gain' : 'Loss'), null, null, { t: 'money', v: summary.gain / 100, s: 'moneyBold' }]);
+    rows.push([]);
+
+    var history = S.state.goldPrices.slice()
+      .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+    rows.push([{ v: 'Price history', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    rows.push([head('Date'), head('24k / Gram'), head('USD / Ounce'), head('EGP per USD'), head('Source')]);
+    history.forEach(function (p) {
+      rows.push([date(p.date), money(p.egpPerGram24),
+        { t: 'number', v: Number(p.usdPerOz) || 0 }, { t: 'number', v: Number(p.egpPerUsd) || 0 },
+        p.source || '']);
+    });
+    if (!history.length) rows.push([{ v: 'No prices have been fetched yet.', s: 'muted' }]);
+
+    return {
+      name: 'Gold', freeze: 1,
+      cols: [{ w: 12 }, { w: 14 }, { w: 9 }, { w: 11 }, { w: 14 }, { w: 14 }, { w: 18 }, { w: 18 }, { w: 26 }],
+      rows: rows, _value: summary.value, _invested: summary.invested
     };
   }
 
@@ -2218,6 +3257,22 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     }, S.plural(st.accounts.length, 'account') + ' (all time)');
     rows.push([]);
 
+    /* Only when there is gold to report. An empty block on everyone else's
+       summary would be noise, and the rows above keep their addresses. */
+    if (st.gold.length) {
+      var goldFigures = S.goldSummary();
+      rows.push([{ v: 'Gold', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+      line('Gold held', { t: 'number', v: goldFigures.grams }, goldFigures.pure.toFixed(2) + ' g of pure gold');
+      line('Worth today', { t: 'money', v: goldFigures.value / 100, s: 'moneyBold' },
+        goldFigures.price ? 'priced ' + goldFigures.price.date : 'no price fetched');
+      line('Paid for it', { t: 'money', v: goldFigures.invested / 100, s: 'money' });
+      line(goldFigures.gain >= 0 ? 'Gain' : 'Loss', { t: 'money', v: goldFigures.gain / 100, s: 'moneyBold' },
+        goldFigures.invested ? Math.round(goldFigures.gainRate * 100) + '% on what you paid' : null);
+      line('Accounts and gold together',
+        { t: 'money', v: (sheets.accounts._total + goldFigures.value) / 100, s: 'moneyBold' });
+      rows.push([]);
+    }
+
     rows.push([{ v: 'Where the money went', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
     var outgoings = sel.bills.concat(sel.purchases);
     var groups = S.groupByCategory(outgoings).slice(0, 12);
@@ -2245,6 +3300,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       purchases: purchasesSheet(sel.purchases),
       accounts: accountsSheet(),
       savingsTx: savingsTxSheet(sel.savingsTx),
+      gold: goldSheet(sel.gold),
       monthly: monthlySheet(sel.periods),
       categories: categorySheet(sel),
       utilities: utilitiesSheet(sel.bills)
@@ -2256,7 +3312,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         summarySheet(scope, sel, sheets),
         sheets.income, sheets.incomeTemplates,
         sheets.bills, sheets.templates, sheets.purchases,
-        sheets.utilities, sheets.accounts, sheets.savingsTx,
+        sheets.utilities, sheets.accounts, sheets.savingsTx, sheets.gold,
         sheets.monthly, sheets.categories
       ]
     });
@@ -2310,6 +3366,13 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function money(cents) { return S.formatMoney(cents); }
 
+  /* Whole percents read better, except near zero where rounding would report a
+     real movement as no movement at all. */
+  function percent(rate) {
+    var value = rate * 100;
+    return (Math.abs(value) < 9.5 && value !== 0 ? value.toFixed(1) : String(Math.round(value))) + '%';
+  }
+
   function toast(message) {
     var existing = doc.querySelector('.toast');
     if (existing) existing.remove();
@@ -2332,15 +3395,121 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   /* -------------------------------------------------------------- view state */
 
-  var view = { tab: 'dashboard', period: S.currentPeriod(), open: {}, booting: true, bootError: null };
+  var view = {
+    tab: 'dashboard', period: S.currentPeriod(), open: {}, history: {},
+    booting: true, bootError: null
+  };
 
   function isOpen(key) { return !!view.open[key]; }
   function toggle(key) { view.open[key] = !view.open[key]; render(); }
 
+  /* Every list can be read two ways: the month on screen, which is the working
+     view, or the whole history, which is what you go looking for when you want
+     to know when something last happened. */
+  function isAllTime(key) { return !!view.history[key]; }
+
+  function scopeToggle(key) {
+    var all = isAllTime(key);
+    function button(label, wanted) {
+      return el('button', {
+        class: 'scope-btn' + (all === wanted ? ' is-on' : ''),
+        'aria-pressed': all === wanted ? 'true' : 'false',
+        text: label,
+        onclick: function () { view.history[key] = wanted; render(); }
+      });
+    }
+    return el('div', { class: 'scope', role: 'group', 'aria-label': 'How much to show' }, [
+      button('This month', false), button('All time', true)
+    ]);
+  }
+
+  /* Rows for a history table: the same rows as the monthly view, with a ruled
+     heading and running total before each new month. */
+  function monthGrouped(records, dateKey, colspan, rowFn, pick) {
+    var amount = pick || function (r) { return r.amount || 0; };
+    var totals = {};
+    records.forEach(function (r) {
+      var p = S.periodOf(r[dateKey]);
+      totals[p] = (totals[p] || 0) + amount(r);
+    });
+
+    var out = [];
+    var current = null;
+    records.forEach(function (r) {
+      var p = S.periodOf(r[dateKey]);
+      if (p !== current) {
+        current = p;
+        out.push(el('tr', { class: 'group-row' }, [
+          el('td', { colspan: colspan }, [
+            el('span', { text: p ? S.periodLabel(p) : 'No date' }),
+            el('span', { class: 'group-total num', text: money(totals[p]) })
+          ])
+        ]));
+      }
+      out.push(rowFn(r));
+    });
+    return out;
+  }
+
+  /* Rows in a list, month-grouped when the list is showing all time. */
+  function listRows(key, records, dateKey, colspan, rowFn, pick) {
+    return isAllTime(key)
+      ? monthGrouped(records, dateKey, colspan, rowFn, pick)
+      : records.map(rowFn);
+  }
+
+  /* An entry dated outside the month on screen would otherwise vanish the
+     moment it was saved, which reads as "it was not recorded". Follow it. */
+  function followDate(dateISO, message) {
+    var period = S.periodOf(dateISO);
+    if (period && period !== view.period) {
+      view.period = period;
+      toast(message + ' · showing ' + S.periodLabel(period));
+      return;
+    }
+    toast(message);
+  }
+
+  /* The account cell, with how the money moved underneath it. */
+  function accountCell(record) {
+    var name = accountName(record.accountId);
+    return el('td', {}, [
+      name ? el('div', { text: name }) : el('span', { class: 'faint', text: 'not linked' }),
+      record.method ? el('span', { class: 'cell-sub', text: record.method }) : null
+    ]);
+  }
+
   /* ------------------------------------------------------------------ forms */
 
-  function optionList(values) {
-    return values.map(function (v) { return el('option', { value: v, text: v }); });
+  /* Selects are built from {value,label} pairs so an account can show its name
+     while storing its id, without a second pass to relabel the options. */
+  function toOptions(values, labels) {
+    return values.map(function (v) {
+      return { value: v, label: labels && labels[v] !== undefined ? labels[v] : v };
+    });
+  }
+
+  function accountOptions(spec) {
+    var list = S.state.accounts.map(function (a) { return { value: a.id, label: a.name }; });
+    if (!spec.required) {
+      list.unshift({ value: '', label: list.length ? '— not linked —' : '— no accounts yet —' });
+    }
+    return list;
+  }
+
+  /* The account you last used for this kind of record. Nearly every entry goes
+     to the same place as the one before it, so this is the right default. */
+  function lastAccountFor(collection) {
+    var list = S.state[collection] || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].accountId && S.byId('accounts', list[i].accountId)) return list[i].accountId;
+    }
+    var first = S.state.accounts[0];
+    return first ? first.id : '';
+  }
+
+  function optionList(options) {
+    return options.map(function (o) { return el('option', { value: o.value, text: o.label }); });
   }
 
   function buildForm(fields, record) {
@@ -2349,14 +3518,29 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
     fields.forEach(function (f) {
       var value = record ? record[f.key] : undefined;
-      var control;
+      var control, mount = null;
+      var id = 'f_' + f.key + '_' + Math.random().toString(36).slice(2, 7);
+      var fallback = typeof f.def === 'function' ? f.def() : f.def;
+      var given = value !== undefined && value !== null && value !== '';
 
-      if (f.type === 'select') {
-        control = el('select', { name: f.key }, optionList(f.options));
-        var initial = value !== undefined && value !== null && value !== ''
-          ? value : (typeof f.def === 'function' ? f.def() : f.def);
-        if (initial && f.options.indexOf(initial) === -1) control.appendChild(el('option', { value: initial, text: initial }));
-        control.value = initial || f.options[0];
+      if (f.type === 'select' || f.type === 'account') {
+        var options = f.type === 'account' ? accountOptions(f) : toOptions(f.options, f.labels);
+        control = el('select', { name: f.key }, optionList(options));
+        // Option values are always strings; a karat read back from SQLite is a
+        // number, and would otherwise look like an unknown option.
+        var initial = given ? String(value) : fallback;
+        var known = options.some(function (o) { return String(o.value) === initial; });
+        // A category that has since been renamed away must still show, or
+        // editing an old record would silently retype it.
+        if (initial && !known) control.appendChild(el('option', { value: initial, text: initial }));
+        control.value = initial || (options.length ? options[0].value : '');
+      } else if (f.type === 'date') {
+        var picker = root.DatePicker.create({
+          value: given ? value : (fallback || ''),
+          id: id, name: f.key, required: f.required, label: f.label
+        });
+        control = picker.value;
+        mount = picker.node;
       } else if (f.type === 'money') {
         control = el('input', {
           name: f.key, type: 'text', inputmode: 'decimal', placeholder: f.placeholder || '0.00',
@@ -2371,20 +3555,19 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         control = el('input', { name: f.key, type: 'checkbox' });
         control.checked = value === undefined ? (f.def !== false) : !!value;
       } else {
-        var initialText = value !== undefined && value !== null && value !== ''
-          ? value : (typeof f.def === 'function' ? f.def() : (f.def || ''));
         control = el('input', {
-          name: f.key, type: f.type === 'date' ? 'date' : 'text',
-          placeholder: f.placeholder || '', value: initialText
+          name: f.key, type: 'text',
+          placeholder: f.placeholder || '', value: given ? value : (fallback || '')
         });
       }
 
       if (f.required) control.setAttribute('required', '');
-      var id = 'f_' + f.key + '_' + Math.random().toString(36).slice(2, 7);
-      control.setAttribute('id', id);
+      // The date field keeps its value on a hidden input, so the label points at
+      // the visible one the picker already carries the id on.
+      if (!mount) control.setAttribute('id', id);
       inputs[f.key] = { control: control, spec: f };
       grid.appendChild(el('div', { class: 'field' + (f.wide ? ' wide' : '') }, [
-        el('label', { for: id, text: f.label }), control
+        el('label', { for: id, text: f.label }), mount || control
       ]));
     });
 
@@ -2409,7 +3592,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     }
 
     function focusFirst() {
-      var first = grid.querySelector('input, select');
+      var first = grid.querySelector('input:not([type="hidden"]), select');
       if (first) first.focus();
     }
 
@@ -2453,6 +3636,17 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     ]);
   }
 
+  /* Saving a recurring definition can quietly do two other things — fill in the
+     months since it started, and adopt the entries it made before it had an
+     account. Both are reported, because a balance that moved on its own is
+     alarming when it is not explained. */
+  function templateToast(saved, added, linked) {
+    var parts = [saved];
+    if (added) parts.push(S.plural(added, 'entry', 'entries') + ' added');
+    if (linked) parts.push(S.plural(linked, 'past entry', 'past entries') + ' linked');
+    return parts.join(' · ');
+  }
+
   /* The "set it once" panel, shared by income and bills. Recurring definitions
      are edited rarely, so it stays folded away behind its own summary line. */
   function recurringSection(cfg) {
@@ -2489,12 +3683,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
               // ever generated before it.
               data.anchor = view.period;
               data.generatedThrough = null;
-              S.upsert(cfg.collection, data);
+              var template = S.upsert(cfg.collection, data);
+              var linked = S.linkGeneratedTo(cfg.collection, template);
               var added = S.catchUp();
               render();
-              toast(added.total
-                ? cfg.saved + ' · ' + S.plural(added.total, 'entry', 'entries') + ' added'
-                : cfg.saved);
+              toast(templateToast(cfg.saved, added.total, linked));
             }
           }, [
             form.node,
@@ -2517,10 +3710,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
           var data = form.read();
           if (!data) { toast('Fill in the required fields'); return; }
           data.id = record.id;
-          onSave(data);
+          // A save that did more than save says so; anything else just saved.
+          var message = onSave(data);
           dialog.close(); dialog.remove();
           render();
-          toast('Saved');
+          toast(typeof message === 'string' && message ? message : 'Saved');
         }
       }, [
         el('div', { class: 'dialog-head', text: title }),
@@ -2563,12 +3757,16 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   /* ------------------------------------------------------------ field specs */
 
+  /* 21 is what most jewellery sold in Egypt is; 24 is bullion and coins. */
+  var KARAT_LABELS = { 24: '24k — pure / bullion', 22: '22k', 21: '21k — usual here', 18: '18k', 14: '14k' };
+
   var FIELDS = {
     income: [
       { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
       { key: 'source', label: 'Source', type: 'text', placeholder: 'Employer or client', required: true },
       { key: 'category', label: 'Category', type: 'select', options: S.INCOME_CATEGORIES, def: 'Salary' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid into', type: 'account', def: function () { return lastAccountFor('income'); } },
       { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
@@ -2577,6 +3775,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'item', label: 'What you bought', type: 'text', placeholder: 'e.g. weekly shop', required: true },
       { key: 'category', label: 'Category', type: 'select', options: S.PURCHASE_CATEGORIES, def: 'Groceries' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('purchases'); } },
       { key: 'method', label: 'Paid with', type: 'select', options: S.PAYMENT_METHODS, def: 'Card' },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
@@ -2586,6 +3785,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
       { key: 'payDay', label: 'Paid on day', type: 'number', min: 1, step: 1, placeholder: '28' },
       { key: 'expected', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid into', type: 'account', def: function () { return lastAccountFor('income'); } },
       { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
       { key: 'active', label: 'Active', type: 'checkbox', def: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
@@ -2597,6 +3797,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
       { key: 'dueDay', label: 'Due day', type: 'number', min: 1, step: 1, placeholder: '1' },
       { key: 'expected', label: 'Typical amount', type: 'money' },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('bills'); } },
       { key: 'method', label: 'Paid by', type: 'select', options: S.PAYMENT_METHODS, def: 'Direct Debit' },
       { key: 'active', label: 'Active', type: 'checkbox', def: true }
     ],
@@ -2606,6 +3807,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'provider', label: 'Provider', type: 'text' },
       { key: 'dueDate', label: 'Due date', type: 'date', required: true },
       { key: 'amount', label: 'Amount billed', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('bills'); } },
       { key: 'units', label: 'Units used', type: 'number', placeholder: 'kWh / m³' },
       { key: 'unitRate', label: 'Rate per unit', type: 'number', placeholder: 'e.g. 0.31' },
       { key: 'paidDate', label: 'Date paid', type: 'date' },
@@ -2613,44 +3815,77 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'notes', label: 'Notes', type: 'text', wide: true }
     ],
     account: [
-      { key: 'name', label: 'Account name', type: 'text', placeholder: 'e.g. Emergency Fund', required: true },
-      { key: 'type', label: 'Type', type: 'select', options: S.ACCOUNT_TYPES, def: 'Savings' },
+      { key: 'name', label: 'Account name', type: 'text', placeholder: 'e.g. Visa, Meeza, Emergency Fund', required: true },
+      { key: 'type', label: 'Type', type: 'select', options: S.ACCOUNT_TYPES, def: 'Current Account' },
       { key: 'opening', label: 'Opening balance', type: 'money' },
       { key: 'target', label: 'Target (optional)', type: 'money' },
       { key: 'notes', label: 'Notes', type: 'text', wide: true }
+    ],
+    gold: [
+      { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
+      {
+        key: 'direction', label: 'Bought or sold', type: 'select', options: ['buy', 'sell'],
+        labels: { buy: 'Bought', sell: 'Sold' }, def: 'buy'
+      },
+      { key: 'karat', label: 'Karat', type: 'select', options: S.GOLD_KARATS.map(String), labels: KARAT_LABELS, def: '21' },
+      { key: 'grams', label: 'Grams', type: 'number', step: '0.001', min: 0, placeholder: 'e.g. 8', required: true },
+      { key: 'amount', label: 'Total paid', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('gold'); } },
+      { key: 'dealer', label: 'Shop', type: 'text', placeholder: 'Optional' },
+      { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ]
   };
 
+  /* Movements between accounts. A transfer needs two accounts, so it is only
+     offered once there are two to move between. */
   function savingsFields() {
-    var accounts = S.state.accounts;
+    var directions = S.state.accounts.length > 1 ? ['transfer', 'in', 'out'] : ['in', 'out'];
     return [
       { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
       {
-        key: 'accountId', label: 'Account', type: 'select',
-        options: accounts.map(function (a) { return a.id; }), def: accounts.length ? accounts[0].id : ''
+        key: 'direction', label: 'Movement', type: 'select', options: directions,
+        labels: { transfer: 'Transfer between accounts', in: 'Money in (from outside)', out: 'Money out (to outside)' },
+        def: directions[0]
       },
-      { key: 'direction', label: 'Direction', type: 'select', options: ['in', 'out'], def: 'in' },
+      {
+        key: 'fromAccountId', label: 'From account', type: 'account',
+        def: function () { return lastAccountFor('income'); }
+      },
+      { key: 'accountId', label: 'To account', type: 'account', def: function () { return defaultSavingsAccount(); } },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ];
   }
 
-  /* Account ids and in/out are storage values; show people words. */
-  function relabelSavingsForm(scope) {
+  /* Where money put aside tends to go: the first savings-type account. */
+  function defaultSavingsAccount() {
+    var pot = S.state.accounts.filter(S.isSavingsAccount)[0] || S.state.accounts[0];
+    return pot ? pot.id : '';
+  }
+
+  /* "From" only means anything for a transfer, so it is hidden otherwise
+     rather than left on screen collecting a value nobody asked for. */
+  function wireMovementForm(scope) {
     if (!scope) return;
-    var accountSelect = scope.querySelector('select[name="accountId"]');
-    if (accountSelect) {
-      Array.prototype.forEach.call(accountSelect.options, function (opt) {
-        var account = S.byId('accounts', opt.value);
-        if (account) opt.textContent = account.name;
-      });
+    var direction = scope.querySelector('select[name="direction"]');
+    var from = scope.querySelector('select[name="fromAccountId"]');
+    var to = scope.querySelector('select[name="accountId"]');
+    if (!direction || !from || !to) return;
+    var fromField = from.closest('.field');
+    var toLabel = to.closest('.field').querySelector('label');
+
+    function sync() {
+      var isTransfer = direction.value === 'transfer';
+      if (fromField) fromField.style.display = isTransfer ? '' : 'none';
+      if (toLabel) toLabel.textContent = direction.value === 'out' ? 'From account' : 'To account';
     }
-    var dirSelect = scope.querySelector('select[name="direction"]');
-    if (dirSelect) {
-      Array.prototype.forEach.call(dirSelect.options, function (opt) {
-        opt.textContent = opt.value === 'out' ? 'Withdrawal (out)' : 'Deposit (in)';
-      });
-    }
+    direction.addEventListener('change', sync);
+    sync();
+  }
+
+  function accountName(id) {
+    var account = S.byId('accounts', id);
+    return account ? account.name : '';
   }
 
   /* -------------------------------------------------------------- dashboard */
@@ -2705,6 +3940,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var period = view.period;
     var s = S.summary(period);
     var upcoming = S.upcomingBills(45);
+    var gold = S.goldSummary();
 
     return el('div', { class: 'stack' }, [
       el('div', { class: 'figures' }, [
@@ -2764,8 +4000,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
           el('section', { class: 'sheet' }, [
             el('div', { class: 'sheet-head' }, [
-              el('h2', { text: 'Savings' }),
-              el('span', { class: 'muted spacer num', text: money(S.totalSavings()) })
+              el('h2', { text: 'Accounts' }),
+              el('span', { class: 'muted spacer num', text: money(S.totalSavings() + gold.value) })
             ]),
             el('div', { class: 'sheet-body' }, [
               S.state.accounts.length
@@ -2781,8 +4017,13 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
                     ]) : null,
                     a.target ? el('div', { class: 'muted', text: Math.round((balance / a.target) * 100) + '% of ' + money(a.target) }) : null
                   ]);
-                }))
-                : el('div', { class: 'empty' }, [el('strong', { text: 'No accounts yet' }), 'Add one on the Savings tab.'])
+                }).concat(gold.value ? [el('div', {}, [
+                  el('div', { class: 'bar-row' }, [
+                    el('div', { class: 'bar-name', text: 'Gold · ' + gold.grams.toFixed(2) + ' g' }),
+                    el('div', { class: 'bar-value', text: money(gold.value) })
+                  ])
+                ])] : []))
+                : el('div', { class: 'empty' }, [el('strong', { text: 'No accounts yet' }), 'Add one on the Accounts tab.'])
             ])
           ])
         ])
@@ -2794,21 +4035,43 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function renderIncome() {
     var period = view.period;
-    var records = S.sortByDateDesc(S.incomeIn(period), 'date');
+    var all = isAllTime('income');
+    var records = S.sortByDateDesc(all ? S.state.income : S.incomeIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
     var templates = S.state.incomeTemplates;
+
+    function row(r) {
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', {}, [
+          el('div', { text: r.source }),
+          // Generated rows are marked so you can tell what the app filled
+          // in from what you entered by hand.
+          r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
+        ]),
+        el('td', { class: 'muted', text: r.category }),
+        el('td', { class: 'num', text: money(r.amount) }),
+        accountCell(r),
+        el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
+        rowActions(
+          function () { openEditor('Edit income', FIELDS.income, r, function (d) { S.upsert('income', d); }); },
+          function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
+        )
+      ]);
+    }
 
     return el('div', { class: 'stack' }, [
       addSection('add-income', 'One-off income', 'Add income', FIELDS.income, function (data) {
         S.upsert('income', data);
-        toast('Income added');
+        followDate(data.date, 'Income added');
       }, !records.length && !templates.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(records.length, 'entry', 'entries') }),
-          templates.length ? el('button', {
+          el('h2', { text: all ? 'All income' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'entry', 'entries') }),
+          el('div', { class: 'spacer' }, [scopeToggle('income')]),
+          !all && templates.length ? el('button', {
             text: 'Generate from recurring',
             onclick: function () {
               var made = S.generateIncome(period);
@@ -2820,28 +4083,12 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Date' }, { label: 'Source' }, { label: 'Category' }, { label: 'Amount', num: true },
-            { label: 'Method' }, { label: 'Notes' }, { label: '', actions: true }],
-          records.length ? records.map(function (r) {
-            return el('tr', {}, [
-              el('td', { class: 'num', text: r.date }),
-              el('td', {}, [
-                el('div', { text: r.source }),
-                // Generated rows are marked so you can tell what the app filled
-                // in from what you entered by hand.
-                r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
-              ]),
-              el('td', { class: 'muted', text: r.category }),
-              el('td', { class: 'num', text: money(r.amount) }),
-              el('td', { class: 'muted', text: r.method || '—' }),
-              el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
-              rowActions(
-                function () { openEditor('Edit income', FIELDS.income, r, function (d) { S.upsert('income', d); }); },
-                function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period),
-            templates.length ? 'Nothing is due from your recurring income this month.'
-              : 'Set your salary up once below and it will appear every month on its own.')]
+            { label: 'Account' }, { label: 'Notes' }, { label: '', actions: true }],
+          records.length ? listRows('income', records, 'date', 7, row)
+            : [emptyRow(7, all ? 'No income recorded yet' : 'No income in ' + S.periodLabel(period),
+              all ? 'Everything you add, in any month, is listed here.'
+                : templates.length ? 'Nothing is due from your recurring income this month.'
+                  : 'Set your salary up once below and it will appear every month on its own.')]
         )])
       ]),
 
@@ -2861,7 +4108,10 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         templates: templates,
         row: function (t) {
           return el('tr', {}, [
-            el('td', { text: t.source }),
+            el('td', {}, [
+              el('div', { text: t.source }),
+              t.accountId ? el('span', { class: 'cell-sub', text: 'into ' + accountName(t.accountId) }) : null
+            ]),
             el('td', { class: 'muted', text: t.category }),
             el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
             el('td', { class: 'num', text: 'day ' + (t.payDay || 1) }),
@@ -2870,8 +4120,12 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
             el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
             rowActions(
               function () {
-                openEditor('Edit recurring income', FIELDS.incomeTemplate, t,
-                  function (d) { S.upsert('incomeTemplates', d); });
+                openEditor('Edit recurring income', FIELDS.incomeTemplate, t, function (d) {
+                  var linked = S.linkGeneratedTo('incomeTemplates', S.upsert('incomeTemplates', d));
+                  return linked
+                    ? 'Saved · ' + S.plural(linked, 'past entry', 'past entries') + ' linked to ' + accountName(d.accountId)
+                    : null;
+                });
               },
               function () { if (confirmDelete('recurring income')) { S.remove('incomeTemplates', t.id); render(); } }
             )
@@ -2902,10 +4156,12 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var statusClass = b.status === 'paid' ? 'paid' : (overdue ? 'overdue' : 'due');
     var statusText = b.status === 'paid' ? 'Paid' : (overdue ? 'Overdue' : 'Unpaid');
 
+    var sub = [b.provider || '', b.accountId ? 'from ' + accountName(b.accountId) : ''].filter(Boolean).join(' · ');
+
     return el('tr', {}, [
       el('td', {}, [
         el('div', { text: b.name }),
-        b.provider ? el('span', { class: 'cell-sub', text: b.provider }) : null
+        sub ? el('span', { class: 'cell-sub', text: sub }) : null
       ]),
       el('td', { class: 'muted', text: b.category }),
       el('td', { class: 'num', text: b.dueDate || '—' }),
@@ -2951,8 +4207,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function renderBills() {
     var period = view.period;
-    var bills = S.billsIn(period).slice().sort(function (a, b) {
-      return String(a.dueDate).localeCompare(String(b.dueDate));
+    var all = isAllTime('bills');
+    var bills = (all ? S.state.bills.slice() : S.billsIn(period).slice()).sort(function (a, b) {
+      // Newest first when reading history, soonest first when working a month.
+      return all ? String(b.dueDate).localeCompare(String(a.dueDate))
+        : String(a.dueDate).localeCompare(String(b.dueDate));
     });
     var total = S.sum(bills, function (b) { return b.amount; });
     var paid = S.sum(bills.filter(function (b) { return b.status === 'paid'; }), function (b) { return b.amount; });
@@ -2962,23 +4221,25 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       /* This month's bills lead, because that is the monthly job. */
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: money(paid) + ' paid of ' + money(total) }),
-          el('button', {
+          el('h2', { text: all ? 'All bills' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: money(paid) + ' paid of ' + money(total) }),
+          el('div', { class: 'spacer' }, [scopeToggle('bills')]),
+          !all ? el('button', {
             text: 'Generate from recurring',
             onclick: function () {
               var made = S.generateBills(period);
               render();
               toast(made ? 'Added ' + S.plural(made, 'bill') : 'Already up to date');
             }
-          }),
+          }) : null,
           el('button', {
             class: 'primary', text: 'Add bill',
             onclick: function () {
               openEditor('Add bill', FIELDS.bill, {
                 id: null, templateId: null, name: '', category: 'Other', provider: '',
                 period: period, dueDate: S.dueDateFor(period, new Date().getDate()),
-                amount: 0, units: null, unitRate: null, status: 'unpaid', paidDate: '', method: '', notes: ''
+                amount: 0, accountId: lastAccountFor('bills'),
+                units: null, unitRate: null, status: 'unpaid', paidDate: '', method: '', notes: ''
               }, function (d) {
                 d.id = null;
                 S.upsert('bills', S.normalizeBill(d, period));
@@ -2989,10 +4250,11 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Bill' }, { label: 'Category' }, { label: 'Due' }, { label: 'Amount', num: true },
             { label: 'Units', num: true }, { label: 'Unit' }, { label: 'Status' }, { label: '', actions: true }],
-          bills.length ? bills.map(billRow)
-            : [emptyRow(8, 'No bills for ' + S.periodLabel(period),
-              templates.length ? 'Nothing is due from your recurring bills this month.'
-                : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
+          bills.length ? listRows('bills', bills, 'dueDate', 8, billRow)
+            : [emptyRow(8, all ? 'No bills recorded yet' : 'No bills for ' + S.periodLabel(period),
+              all ? 'Every bill you record, in any month, is listed here.'
+                : templates.length ? 'Nothing is due from your recurring bills this month.'
+                  : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
         )])
       ]),
 
@@ -3012,7 +4274,10 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         templates: templates,
         row: function (t) {
           return el('tr', {}, [
-            el('td', { text: t.name }),
+            el('td', {}, [
+              el('div', { text: t.name }),
+              t.accountId ? el('span', { class: 'cell-sub', text: 'from ' + accountName(t.accountId) }) : null
+            ]),
             el('td', { class: 'muted', text: t.category }),
             el('td', { class: 'muted', text: t.provider || '—' }),
             el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
@@ -3021,7 +4286,14 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
             el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
             el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
             rowActions(
-              function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
+              function () {
+              openEditor('Edit recurring bill', FIELDS.template, t, function (d) {
+                var linked = S.linkGeneratedTo('billTemplates', S.upsert('billTemplates', d));
+                return linked
+                  ? 'Saved · ' + S.plural(linked, 'past bill') + ' linked to ' + accountName(d.accountId)
+                  : null;
+              });
+            },
               function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
             )
           ]);
@@ -3034,38 +4306,44 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function renderPurchases() {
     var period = view.period;
-    var records = S.sortByDateDesc(S.purchasesIn(period), 'date');
+    var all = isAllTime('purchases');
+    var records = S.sortByDateDesc(all ? S.state.purchases : S.purchasesIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
+
+    function row(r) {
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', { text: r.item }),
+        el('td', { class: 'muted', text: r.category }),
+        el('td', { class: 'num', text: money(r.amount) }),
+        accountCell(r),
+        el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
+        rowActions(
+          function () { openEditor('Edit purchase', FIELDS.purchase, r, function (d) { S.upsert('purchases', d); }); },
+          function () { if (confirmDelete('purchase')) { S.remove('purchases', r.id); render(); } }
+        )
+      ]);
+    }
 
     return el('div', { class: 'stack' }, [
       addSection('add-purchase', 'Purchases', 'Add purchase', FIELDS.purchase, function (data) {
         S.upsert('purchases', data);
-        toast('Purchase added');
+        followDate(data.date, 'Purchase added');
       }, !records.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(records.length, 'item') }),
+          el('h2', { text: all ? 'All purchases' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'item') }),
+          el('div', { class: 'spacer' }, [scopeToggle('purchases')]),
           el('span', { class: 'num', text: money(total) })
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Date' }, { label: 'Item' }, { label: 'Category' }, { label: 'Amount', num: true },
-            { label: 'Paid with' }, { label: 'Notes' }, { label: '', actions: true }],
-          records.length ? records.map(function (r) {
-            return el('tr', {}, [
-              el('td', { class: 'num', text: r.date }),
-              el('td', { text: r.item }),
-              el('td', { class: 'muted', text: r.category }),
-              el('td', { class: 'num', text: money(r.amount) }),
-              el('td', { class: 'muted', text: r.method || '—' }),
-              el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
-              rowActions(
-                function () { openEditor('Edit purchase', FIELDS.purchase, r, function (d) { S.upsert('purchases', d); }); },
-                function () { if (confirmDelete('purchase')) { S.remove('purchases', r.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(7, 'Nothing bought in ' + S.periodLabel(period), 'Groceries, fuel, clothes — anything that is not a recurring bill.')]
+            { label: 'Account' }, { label: 'Notes' }, { label: '', actions: true }],
+          records.length ? listRows('purchases', records, 'date', 7, row)
+            : [emptyRow(7, all ? 'Nothing bought yet' : 'Nothing bought in ' + S.periodLabel(period),
+              'Groceries, fuel, clothes — anything that is not a recurring bill.')]
         )])
       ])
     ]);
@@ -3073,69 +4351,138 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   /* ---------------------------------------------------------------- savings */
 
+  /* One line of an account's story: where the balance came from. */
+  function flowLine(label, amount, negative) {
+    if (!amount) return null;
+    return el('div', { class: 'flow' + (negative ? ' is-out' : '') }, [
+      el('span', { text: label }),
+      el('span', { class: 'num', text: (negative ? '−' : '+') + money(amount) })
+    ]);
+  }
+
+  function accountCard(a) {
+    var flows = S.accountFlows(a.id);
+    var balance = S.accountBalance(a.id);
+    var lines = [
+      flowLine('Opening', flows.opening, flows.opening < 0),
+      flowLine('Income', flows.income),
+      flowLine('Moved in', flows.savedIn),
+      flowLine('Purchases', flows.purchases, true),
+      flowLine('Bills paid', flows.bills, true),
+      flowLine('Gold', flows.gold, true),
+      flowLine('Moved out', flows.savedOut, true)
+    ].filter(Boolean);
+
+    return el('div', { class: 'account' }, [
+      el('div', { class: 'account-top' }, [
+        el('div', {}, [
+          el('div', { class: 'account-name', text: a.name }),
+          el('div', { class: 'muted', text: a.type })
+        ]),
+        el('div', { class: 'actions', style: 'margin-left:auto' }, [
+          el('button', {
+            class: 'quiet small', text: 'Edit',
+            onclick: function () { openEditor('Edit account', FIELDS.account, a, function (d) { S.upsert('accounts', d); }); }
+          }),
+          el('button', {
+            class: 'quiet small danger', text: 'Delete',
+            onclick: function () {
+              if (root.confirm('Delete "' + a.name + '" and all of its movements? This cannot be undone.\n\n' +
+                'Income, bills and purchases linked to it are kept, but stop counting towards any balance.')) {
+                S.remove('accounts', a.id); render();
+              }
+            }
+          })
+        ])
+      ]),
+      el('div', { class: 'account-balance' + (balance < 0 ? ' is-negative' : ''), text: money(balance) }),
+      a.target ? el('div', { class: 'progress' }, [
+        el('div', { style: 'width:' + Math.min(100, Math.max(0, (balance / a.target) * 100)) + '%' })
+      ]) : null,
+      a.target ? el('div', { class: 'muted', text: Math.round((balance / a.target) * 100) + '% of ' + money(a.target) + ' target' }) : null,
+      lines.length ? el('div', { class: 'flows' }, lines) : el('div', { class: 'muted', text: 'Nothing has moved yet.' })
+    ]);
+  }
+
+  function movementRow(t) {
+    var to = accountName(t.accountId) || '(deleted)';
+    var transfer = t.direction === 'transfer';
+    var out = t.direction === 'out';
+    var where = transfer ? (accountName(t.fromAccountId) || '(deleted)') + ' → ' + to : to;
+    var label = transfer ? 'Transfer' : (out ? 'Out' : 'In');
+
+    return el('tr', {}, [
+      el('td', { class: 'num', text: t.date }),
+      el('td', { text: where }),
+      el('td', {}, [el('span', { class: 'status ' + (transfer ? 'due' : (out ? 'overdue' : 'paid')), text: label })]),
+      el('td', { class: 'num', text: (out ? '−' : '+') + money(t.amount) }),
+      el('td', { class: 'truncate muted', title: t.notes || '', text: t.notes || '' }),
+      rowActions(
+        function () {
+          openEditor('Edit movement', savingsFields(), t,
+            function (d) {
+              if (d.direction !== 'transfer') d.fromAccountId = '';
+              S.upsert('savingsTx', d);
+            },
+            function (dialog) { wireMovementForm(dialog); });
+        },
+        function () { if (confirmDelete('movement')) { S.remove('savingsTx', t.id); render(); } }
+      )
+    ]);
+  }
+
   function renderSavings() {
     var period = view.period;
+    var all = isAllTime('movements');
     var accounts = S.state.accounts;
-    var txs = S.sortByDateDesc(S.savingsTxIn(period), 'date');
+    var txs = S.sortByDateDesc(all ? S.state.savingsTx : S.savingsTxIn(period), 'date');
+    var gold = S.goldSummary();
 
     var moveSection = null;
     if (accounts.length) {
-      moveSection = addSection('add-saving', 'Movements', 'Record movement', savingsFields(), function (data) {
+      moveSection = addSection('add-saving', 'Movements between accounts', 'Record movement', savingsFields(), function (data) {
+        if (data.direction !== 'transfer') data.fromAccountId = '';
+        else if (data.fromAccountId === data.accountId) {
+          toast('A transfer needs two different accounts');
+          return;
+        }
         S.upsert('savingsTx', data);
-        toast(data.direction === 'out' ? 'Withdrawal recorded' : 'Deposit recorded');
+        followDate(data.date, data.direction === 'transfer' ? 'Transfer recorded'
+          : data.direction === 'out' ? 'Withdrawal recorded' : 'Deposit recorded');
       }, !txs.length);
-      relabelSavingsForm(moveSection);
+      wireMovementForm(moveSection);
     }
 
     return el('div', { class: 'stack' }, [
+      el('div', { class: 'figures' }, [
+        figure('Across all accounts', money(S.totalSavings()), S.plural(accounts.length, 'account')),
+        figure('In savings pots', money(S.savingsBalance()),
+          S.plural(accounts.filter(S.isSavingsAccount).length, 'pot')),
+        figure('Gold', money(gold.value), gold.value ? gold.pure.toFixed(2) + ' g of pure gold' : 'none held'),
+        figure('Total worth', money(S.totalSavings() + gold.value), 'accounts and gold together')
+      ]),
+
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: 'Accounts & pots' }),
-          el('span', { class: 'muted spacer num', text: money(S.totalSavings()) }),
+          el('h2', { text: 'Accounts, cards & pots' }),
+          el('span', { class: 'muted spacer' },
+            'Every income, purchase and paid bill moves one of these balances.'),
           el('button', {
             class: 'primary', text: 'Add account',
             onclick: function () {
-              openEditor('Add savings account', FIELDS.account,
-                { id: null, name: '', type: 'Savings', opening: 0, target: 0, notes: '' },
+              openEditor('Add account', FIELDS.account,
+                { id: null, name: '', type: 'Current Account', opening: 0, target: 0, notes: '' },
                 function (d) { d.id = null; S.upsert('accounts', d); });
             }
           })
         ]),
         el('div', { class: 'sheet-body' }, [
           accounts.length
-            ? el('div', { class: 'accounts' }, accounts.map(function (a) {
-              var balance = S.accountBalance(a.id);
-              return el('div', { class: 'account' }, [
-                el('div', { class: 'account-top' }, [
-                  el('div', {}, [
-                    el('div', { class: 'account-name', text: a.name }),
-                    el('div', { class: 'muted', text: a.type })
-                  ]),
-                  el('div', { class: 'actions', style: 'margin-left:auto' }, [
-                    el('button', {
-                      class: 'quiet small', text: 'Edit',
-                      onclick: function () { openEditor('Edit account', FIELDS.account, a, function (d) { S.upsert('accounts', d); }); }
-                    }),
-                    el('button', {
-                      class: 'quiet small danger', text: 'Delete',
-                      onclick: function () {
-                        if (root.confirm('Delete "' + a.name + '" and all of its movements? This cannot be undone.')) {
-                          S.remove('accounts', a.id); render();
-                        }
-                      }
-                    })
-                  ])
-                ]),
-                el('div', { class: 'account-balance', text: money(balance) }),
-                a.target ? el('div', { class: 'progress' }, [
-                  el('div', { style: 'width:' + Math.min(100, Math.max(0, (balance / a.target) * 100)) + '%' })
-                ]) : null,
-                el('div', { class: 'muted', text: a.target ? Math.round((balance / a.target) * 100) + '% of ' + money(a.target) + ' target' : 'No target set' })
-              ]);
-            }))
+            ? el('div', { class: 'accounts' }, accounts.map(accountCard))
             : el('div', { class: 'empty' }, [
-              el('strong', { text: 'No savings accounts yet' }),
-              'Add an emergency fund, a holiday pot, or anywhere you put money aside.'
+              el('strong', { text: 'No accounts yet' }),
+              'Add the card your salary lands on, and anywhere you put money aside. ' +
+              'Every entry can then say which account it moved.'
             ])
         ])
       ]),
@@ -3144,32 +4491,267 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(txs.length, 'movement') })
+          el('h2', { text: all ? 'All movements' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(txs.length, 'movement') }),
+          el('div', { class: 'spacer' }, [scopeToggle('movements')])
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
-          [{ label: 'Date' }, { label: 'Account' }, { label: 'Direction' }, { label: 'Amount', num: true },
+          [{ label: 'Date' }, { label: 'Account' }, { label: 'Movement' }, { label: 'Amount', num: true },
             { label: 'Notes' }, { label: '', actions: true }],
-          txs.length ? txs.map(function (t) {
-            var account = S.byId('accounts', t.accountId);
-            var out = t.direction === 'out';
-            return el('tr', {}, [
-              el('td', { class: 'num', text: t.date }),
-              el('td', { text: account ? account.name : '(deleted)' }),
-              el('td', {}, [el('span', { class: 'status ' + (out ? 'overdue' : 'paid'), text: out ? 'Withdrawal' : 'Deposit' })]),
-              el('td', { class: 'num', text: (out ? '−' : '+') + money(t.amount) }),
-              el('td', { class: 'truncate muted', title: t.notes || '', text: t.notes || '' }),
-              rowActions(
-                function () {
-                  openEditor('Edit movement', savingsFields(), t,
-                    function (d) { S.upsert('savingsTx', d); },
-                    function (dialog) { relabelSavingsForm(dialog); });
-                },
-                function () { if (confirmDelete('movement')) { S.remove('savingsTx', t.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(6, 'No movements in ' + S.periodLabel(period),
-            accounts.length ? 'Record what you put aside or took out.' : 'Add an account first.')]
+          txs.length ? listRows('movements', txs, 'date', 6, movementRow)
+            : [emptyRow(6, all ? 'No movements recorded yet' : 'No movements in ' + S.periodLabel(period),
+              accounts.length ? 'Record what you moved from one account to another.' : 'Add an account first.')]
+        )])
+      ])
+    ]);
+  }
+
+  /* ------------------------------------------------------------------- gold */
+
+  function goldPriceLine() {
+    var snapshot = S.latestGoldPrice();
+    var manual = (Number(S.state.settings.goldManualPrice) || 0) > 0;
+    var premium = Number(S.state.settings.goldPremium) || 0;
+
+    if (!snapshot && !manual) {
+      return el('div', { class: 'empty' }, [
+        el('strong', { text: 'No price yet' }),
+        S.state.settings.goldSync === false
+          ? 'Price syncing is switched off. Turn it on below, or type a price in yourself.'
+          : 'Press "Update price" to fetch today\'s rate, or type one in yourself below.'
+      ]);
+    }
+
+    var note = manual
+      ? 'Your own price, used exactly as typed'
+      : 'World spot × USD/EGP' + (premium ? ' + ' + premium + '% shop premium' : '')
+        + ' · $' + (snapshot.usdPerOz || 0).toFixed(2) + '/oz · E£' + (snapshot.egpPerUsd || 0).toFixed(2) + '/$';
+
+    return el('div', {}, [
+      el('div', { class: 'gold-prices' }, S.GOLD_KARATS.map(function (karat) {
+        return el('div', { class: 'gold-price' + (karat === 21 ? ' is-lead' : '') }, [
+          el('div', { class: 'label', text: karat + 'k' }),
+          el('div', { class: 'gold-price-value', text: money(S.goldPricePerGram(karat)) }),
+          el('div', { class: 'muted', text: 'per gram' })
+        ]);
+      })),
+      el('p', { class: 'muted', style: 'margin:12px 0 0' },
+        note + (manual || !snapshot ? '' : ' · taken ' + snapshot.date))
+    ]);
+  }
+
+  function goldPriceSettings() {
+    var settings = S.state.settings;
+    var sync = el('input', { type: 'checkbox' });
+    sync.checked = settings.goldSync !== false;
+    var premium = el('input', { type: 'number', step: '0.5', min: '0', max: '100', value: String(Number(settings.goldPremium) || 0) });
+    var manual = el('input', {
+      type: 'text', inputmode: 'decimal',
+      value: Number(settings.goldManualPrice) ? String(S.toMajor(settings.goldManualPrice).toFixed(2)) : '',
+      placeholder: 'leave empty to use the synced price'
+    });
+
+    return el('div', {}, [
+      el('p', { class: 'muted', style: 'margin-top:0' },
+        'Gold is quoted worldwide in dollars per ounce. This app fetches that figure and the ' +
+        'pound rate once a day and works out the price per gram — which is the bourse price, ' +
+        'a little under what a shop quotes. The premium closes that gap. If the figure here ' +
+        'ever drifts from the board in the shop, type theirs in and nothing is fetched at all.'),
+      el('div', { class: 'form-grid' }, [
+        settingRow('Update the price online', sync, 'Once a day, when you open the app'),
+        settingRow('Shop premium %', premium, 'Starts at 2%, which matched the Cairo boards'),
+        settingRow('Your own price for 24k (per gram)', manual, 'Overrides everything above')
+      ]),
+      el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
+        el('button', {
+          class: 'primary', text: 'Save price settings',
+          onclick: function () {
+            settings.goldSync = sync.checked;
+            settings.goldPremium = Number(premium.value) || 0;
+            settings.goldManualPrice = S.parseMoney(manual.value);
+            S.save();
+            render();
+            toast('Price settings saved');
+          }
+        })
+      ])
+    ]);
+  }
+
+  /* A plain line of the daily readings — enough to see which way it is going. */
+  function goldSparkline() {
+    var history = S.state.goldPrices.slice()
+      .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+      .slice(-60);
+    if (history.length < 2) return null;
+
+    var values = history.map(function (p) { return p.egpPerGram24 || 0; });
+    var min = Math.min.apply(null, values);
+    var max = Math.max.apply(null, values);
+    var span = (max - min) || 1;
+    var points = values.map(function (v, i) {
+      var x = (i / (values.length - 1)) * 100;
+      var y = 30 - ((v - min) / span) * 28 - 1;
+      return x.toFixed(2) + ',' + y.toFixed(2);
+    }).join(' ');
+
+    var svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 30');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Gold price per gram, last ' + history.length + ' readings');
+    var line = doc.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('points', points);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', 'currentColor');
+    line.setAttribute('stroke-width', '1');
+    line.setAttribute('vector-effect', 'non-scaling-stroke');
+    svg.appendChild(line);
+
+    return el('div', {}, [
+      svg,
+      el('div', { class: 'legend' }, [
+        el('span', { text: history[0].date + ' · ' + money(min) }),
+        el('span', { text: 'now · ' + money(values[values.length - 1]) })
+      ])
+    ]);
+  }
+
+  function renderGold() {
+    var period = view.period;
+    var all = isAllTime('gold');
+    var summary = S.goldSummary();
+    var holdings = S.goldHoldings();
+    var records = S.sortByDateDesc(all ? S.state.gold : S.goldIn(period), 'date');
+    var history = S.sortByDateDesc(S.state.goldPrices, 'date').slice(0, 14);
+    var spark = goldSparkline();
+
+    function row(r) {
+      var sold = r.direction === 'sell';
+      var grams = Number(r.grams) || 0;
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', {}, [
+          el('span', { class: 'status ' + (sold ? 'overdue' : 'paid'), text: sold ? 'Sold' : 'Bought' }),
+          r.dealer ? el('span', { class: 'cell-sub', text: r.dealer }) : null
+        ]),
+        el('td', { class: 'num', text: (Number(r.karat) || 24) + 'k' }),
+        el('td', { class: 'num', text: grams.toFixed(3) + ' g' }),
+        el('td', { class: 'num', text: (sold ? '+' : '−') + money(r.amount) }),
+        el('td', { class: 'num muted', text: grams ? money(Math.round((r.amount || 0) / grams)) + '/g' : '—' }),
+        el('td', {}, [
+          accountName(r.accountId)
+            ? el('div', { text: accountName(r.accountId) })
+            : el('span', { class: 'faint', text: 'not linked' })
+        ]),
+        rowActions(
+          function () {
+            openEditor('Edit gold entry', FIELDS.gold, r, function (d) {
+              d.karat = Number(d.karat);
+              S.upsert('gold', d);
+            });
+          },
+          function () { if (confirmDelete('gold entry')) { S.remove('gold', r.id); render(); } }
+        )
+      ]);
+    }
+
+    return el('div', { class: 'stack' }, [
+      el('div', { class: 'figures' }, [
+        figure('Gold held', summary.grams.toFixed(2) + ' g', summary.pure.toFixed(2) + ' g pure'),
+        figure('Worth today', money(summary.value), summary.price ? 'priced ' + summary.price.date : 'no price yet'),
+        figure('Paid for it', money(summary.invested), S.plural(S.state.gold.length, 'entry', 'entries')),
+        figure(summary.gain >= 0 ? 'Gain' : 'Loss', money(summary.gain),
+          summary.invested ? percent(summary.gainRate) + ' on what you paid' : 'nothing bought yet',
+          summary.gain < 0)
+      ]),
+
+      el('section', { class: 'sheet' }, [
+        el('div', { class: 'sheet-head' }, [
+          el('h2', { text: 'Price per gram' }),
+          el('span', { class: 'muted spacer' }, S.state.settings.goldSync === false ? 'syncing off' : 'updated once a day'),
+          el('button', {
+            text: root.GoldPrice.busy ? 'Updating…' : 'Update price',
+            disabled: root.GoldPrice.busy,
+            onclick: function () {
+              toast('Fetching today\'s price…');
+              root.GoldPrice.refresh({ manual: true }).then(function (result) {
+                render();
+                if (result.ok && result.partial) toast('Price updated, partly — ' + result.error);
+                else if (result.ok) toast('Price updated');
+                else toast(result.error || 'Could not update the price');
+              });
+            }
+          }),
+          el('button', {
+            'aria-expanded': isOpen('gold-settings') ? 'true' : 'false',
+            text: isOpen('gold-settings') ? 'Hide settings' : 'Price settings',
+            onclick: function () { toggle('gold-settings'); }
+          })
+        ]),
+        el('div', { class: 'sheet-body' }, [goldPriceLine()]),
+        isOpen('gold-settings') ? el('div', { class: 'disclosure-body' }, [goldPriceSettings()]) : null
+      ]),
+
+      el('div', { class: 'two-col' }, [
+        el('section', { class: 'sheet' }, [
+          el('div', { class: 'sheet-head' }, [
+            el('h2', { text: 'What you hold' }),
+            el('span', { class: 'muted spacer num', text: money(summary.value) })
+          ]),
+          el('div', { class: 'sheet-body flush' }, [table(
+            [{ label: 'Karat' }, { label: 'Grams', num: true }, { label: 'Price / g', num: true }, { label: 'Worth', num: true }],
+            holdings.length ? holdings.map(function (h) {
+              return el('tr', {}, [
+                el('td', { text: h.karat + 'k' }),
+                el('td', { class: 'num', text: h.grams.toFixed(3) }),
+                el('td', { class: 'num muted', text: money(S.goldPricePerGram(h.karat)) }),
+                el('td', { class: 'num', text: money(h.value) })
+              ]);
+            }) : [emptyRow(4, 'No gold held', 'Record what you bought below and it is valued at today\'s price.')]
+          )])
+        ]),
+
+        el('section', { class: 'sheet' }, [
+          el('div', { class: 'sheet-head' }, [
+            el('h2', { text: 'Price history' }),
+            el('span', { class: 'muted spacer', text: S.plural(S.state.goldPrices.length, 'reading') })
+          ]),
+          spark ? el('div', { class: 'sheet-body' }, [spark]) : null,
+          el('div', { class: 'sheet-body flush' }, [table(
+            [{ label: 'Date' }, { label: '24k / g', num: true }, { label: '$/oz', num: true }, { label: 'E£/$', num: true }],
+            history.length ? history.map(function (p) {
+              return el('tr', {}, [
+                el('td', { class: 'num', text: p.date }),
+                el('td', { class: 'num', text: money(p.egpPerGram24) }),
+                el('td', { class: 'num muted', text: (p.usdPerOz || 0).toFixed(2) }),
+                el('td', { class: 'num muted', text: (p.egpPerUsd || 0).toFixed(2) })
+              ]);
+            }) : [emptyRow(4, 'Nothing recorded yet', 'Each day you open the app, that day\'s price is kept here.')]
+          )])
+        ])
+      ]),
+
+      addSection('add-gold', 'Gold you bought or sold', 'Add gold', FIELDS.gold, function (data) {
+        data.karat = Number(data.karat);
+        data.pricePerGram = data.grams ? Math.round((data.amount || 0) / data.grams) : 0;
+        S.upsert('gold', data);
+        followDate(data.date, data.direction === 'sell' ? 'Sale recorded' : 'Purchase recorded');
+      }, !S.state.gold.length),
+
+      el('section', { class: 'sheet' }, [
+        el('div', { class: 'sheet-head' }, [
+          el('h2', { text: all ? 'All gold entries' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'entry', 'entries') }),
+          el('div', { class: 'spacer' }, [scopeToggle('gold')])
+        ]),
+        el('div', { class: 'sheet-body flush' }, [table(
+          [{ label: 'Date' }, { label: 'Bought / sold' }, { label: 'Karat', num: true }, { label: 'Grams', num: true },
+            { label: 'Amount', num: true }, { label: 'Per gram', num: true }, { label: 'Account' }, { label: '', actions: true }],
+          records.length ? listRows('gold', records, 'date', 8, row)
+            : [emptyRow(8, all ? 'No gold recorded yet' : 'Nothing in ' + S.periodLabel(period),
+              'Every gram you buy is tracked against the live price.')]
         )])
       ])
     ]);
@@ -3408,7 +4990,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     { id: 'income', label: 'Income', render: renderIncome },
     { id: 'bills', label: 'Bills', render: renderBills },
     { id: 'purchases', label: 'Purchases', render: renderPurchases },
-    { id: 'savings', label: 'Savings', render: renderSavings },
+    { id: 'savings', label: 'Accounts', render: renderSavings },
+    { id: 'gold', label: 'Gold', render: renderGold },
     { id: 'settings', label: 'Settings', render: renderSettings }
   ];
 
@@ -3464,9 +5047,19 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     ]);
   }
 
+  /* Which tab the page currently shows. Re-rendering in place — saving a row,
+     opening a form — must not throw you back to the top; moving to another tab
+     must not drop you halfway down it. Those are different situations and the
+     scroll position is only worth keeping in the first. */
+  var rendered = null;
+
   function render() {
     var app = doc.getElementById('app');
+    var sameTab = rendered === view.tab;
     var scroll = root.scrollY;
+    // The calendar hangs outside #app, so it would outlive the field it belongs
+    // to if a render happened while it was open.
+    root.DatePicker.close();
     clear(app);
 
     if (view.bootError) {
@@ -3487,7 +5080,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
     var tab = TABS.find(function (t) { return t.id === view.tab; }) || TABS[0];
     append(app, [renderTopbar(), el('main', {}, [storageNotice(), tab.render()])]);
-    root.scrollTo(0, scroll);
+    rendered = view.tab;
+    root.scrollTo(0, sameTab ? scroll : 0);
   }
 
   function init() {
@@ -3505,6 +5099,13 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       view.booting = false;
       if (result.migrated) S.save();
       render();
+
+      /* The price sync is the one thing here that reaches the network, so it
+         happens after the app is already usable and never blocks it. Nothing
+         announces itself: a quiet update is the point of "once a day". */
+      if (root.GoldPrice.isDue()) {
+        root.GoldPrice.refresh().then(function (outcome) { if (outcome.ok) render(); });
+      }
 
       if (result.migrated) {
         toast('Moved your existing records into the database');

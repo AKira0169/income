@@ -35,6 +35,13 @@
 
   function money(cents) { return S.formatMoney(cents); }
 
+  /* Whole percents read better, except near zero where rounding would report a
+     real movement as no movement at all. */
+  function percent(rate) {
+    var value = rate * 100;
+    return (Math.abs(value) < 9.5 && value !== 0 ? value.toFixed(1) : String(Math.round(value))) + '%';
+  }
+
   function toast(message) {
     var existing = doc.querySelector('.toast');
     if (existing) existing.remove();
@@ -57,15 +64,121 @@
 
   /* -------------------------------------------------------------- view state */
 
-  var view = { tab: 'dashboard', period: S.currentPeriod(), open: {}, booting: true, bootError: null };
+  var view = {
+    tab: 'dashboard', period: S.currentPeriod(), open: {}, history: {},
+    booting: true, bootError: null
+  };
 
   function isOpen(key) { return !!view.open[key]; }
   function toggle(key) { view.open[key] = !view.open[key]; render(); }
 
+  /* Every list can be read two ways: the month on screen, which is the working
+     view, or the whole history, which is what you go looking for when you want
+     to know when something last happened. */
+  function isAllTime(key) { return !!view.history[key]; }
+
+  function scopeToggle(key) {
+    var all = isAllTime(key);
+    function button(label, wanted) {
+      return el('button', {
+        class: 'scope-btn' + (all === wanted ? ' is-on' : ''),
+        'aria-pressed': all === wanted ? 'true' : 'false',
+        text: label,
+        onclick: function () { view.history[key] = wanted; render(); }
+      });
+    }
+    return el('div', { class: 'scope', role: 'group', 'aria-label': 'How much to show' }, [
+      button('This month', false), button('All time', true)
+    ]);
+  }
+
+  /* Rows for a history table: the same rows as the monthly view, with a ruled
+     heading and running total before each new month. */
+  function monthGrouped(records, dateKey, colspan, rowFn, pick) {
+    var amount = pick || function (r) { return r.amount || 0; };
+    var totals = {};
+    records.forEach(function (r) {
+      var p = S.periodOf(r[dateKey]);
+      totals[p] = (totals[p] || 0) + amount(r);
+    });
+
+    var out = [];
+    var current = null;
+    records.forEach(function (r) {
+      var p = S.periodOf(r[dateKey]);
+      if (p !== current) {
+        current = p;
+        out.push(el('tr', { class: 'group-row' }, [
+          el('td', { colspan: colspan }, [
+            el('span', { text: p ? S.periodLabel(p) : 'No date' }),
+            el('span', { class: 'group-total num', text: money(totals[p]) })
+          ])
+        ]));
+      }
+      out.push(rowFn(r));
+    });
+    return out;
+  }
+
+  /* Rows in a list, month-grouped when the list is showing all time. */
+  function listRows(key, records, dateKey, colspan, rowFn, pick) {
+    return isAllTime(key)
+      ? monthGrouped(records, dateKey, colspan, rowFn, pick)
+      : records.map(rowFn);
+  }
+
+  /* An entry dated outside the month on screen would otherwise vanish the
+     moment it was saved, which reads as "it was not recorded". Follow it. */
+  function followDate(dateISO, message) {
+    var period = S.periodOf(dateISO);
+    if (period && period !== view.period) {
+      view.period = period;
+      toast(message + ' · showing ' + S.periodLabel(period));
+      return;
+    }
+    toast(message);
+  }
+
+  /* The account cell, with how the money moved underneath it. */
+  function accountCell(record) {
+    var name = accountName(record.accountId);
+    return el('td', {}, [
+      name ? el('div', { text: name }) : el('span', { class: 'faint', text: 'not linked' }),
+      record.method ? el('span', { class: 'cell-sub', text: record.method }) : null
+    ]);
+  }
+
   /* ------------------------------------------------------------------ forms */
 
-  function optionList(values) {
-    return values.map(function (v) { return el('option', { value: v, text: v }); });
+  /* Selects are built from {value,label} pairs so an account can show its name
+     while storing its id, without a second pass to relabel the options. */
+  function toOptions(values, labels) {
+    return values.map(function (v) {
+      return { value: v, label: labels && labels[v] !== undefined ? labels[v] : v };
+    });
+  }
+
+  function accountOptions(spec) {
+    var list = S.state.accounts.map(function (a) { return { value: a.id, label: a.name }; });
+    if (!spec.required) {
+      list.unshift({ value: '', label: list.length ? '— not linked —' : '— no accounts yet —' });
+    }
+    return list;
+  }
+
+  /* The account you last used for this kind of record. Nearly every entry goes
+     to the same place as the one before it, so this is the right default. */
+  function lastAccountFor(collection) {
+    var list = S.state[collection] || [];
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].accountId && S.byId('accounts', list[i].accountId)) return list[i].accountId;
+    }
+    var first = S.state.accounts[0];
+    return first ? first.id : '';
+  }
+
+  function optionList(options) {
+    return options.map(function (o) { return el('option', { value: o.value, text: o.label }); });
   }
 
   function buildForm(fields, record) {
@@ -74,14 +187,29 @@
 
     fields.forEach(function (f) {
       var value = record ? record[f.key] : undefined;
-      var control;
+      var control, mount = null;
+      var id = 'f_' + f.key + '_' + Math.random().toString(36).slice(2, 7);
+      var fallback = typeof f.def === 'function' ? f.def() : f.def;
+      var given = value !== undefined && value !== null && value !== '';
 
-      if (f.type === 'select') {
-        control = el('select', { name: f.key }, optionList(f.options));
-        var initial = value !== undefined && value !== null && value !== ''
-          ? value : (typeof f.def === 'function' ? f.def() : f.def);
-        if (initial && f.options.indexOf(initial) === -1) control.appendChild(el('option', { value: initial, text: initial }));
-        control.value = initial || f.options[0];
+      if (f.type === 'select' || f.type === 'account') {
+        var options = f.type === 'account' ? accountOptions(f) : toOptions(f.options, f.labels);
+        control = el('select', { name: f.key }, optionList(options));
+        // Option values are always strings; a karat read back from SQLite is a
+        // number, and would otherwise look like an unknown option.
+        var initial = given ? String(value) : fallback;
+        var known = options.some(function (o) { return String(o.value) === initial; });
+        // A category that has since been renamed away must still show, or
+        // editing an old record would silently retype it.
+        if (initial && !known) control.appendChild(el('option', { value: initial, text: initial }));
+        control.value = initial || (options.length ? options[0].value : '');
+      } else if (f.type === 'date') {
+        var picker = root.DatePicker.create({
+          value: given ? value : (fallback || ''),
+          id: id, name: f.key, required: f.required, label: f.label
+        });
+        control = picker.value;
+        mount = picker.node;
       } else if (f.type === 'money') {
         control = el('input', {
           name: f.key, type: 'text', inputmode: 'decimal', placeholder: f.placeholder || '0.00',
@@ -96,20 +224,19 @@
         control = el('input', { name: f.key, type: 'checkbox' });
         control.checked = value === undefined ? (f.def !== false) : !!value;
       } else {
-        var initialText = value !== undefined && value !== null && value !== ''
-          ? value : (typeof f.def === 'function' ? f.def() : (f.def || ''));
         control = el('input', {
-          name: f.key, type: f.type === 'date' ? 'date' : 'text',
-          placeholder: f.placeholder || '', value: initialText
+          name: f.key, type: 'text',
+          placeholder: f.placeholder || '', value: given ? value : (fallback || '')
         });
       }
 
       if (f.required) control.setAttribute('required', '');
-      var id = 'f_' + f.key + '_' + Math.random().toString(36).slice(2, 7);
-      control.setAttribute('id', id);
+      // The date field keeps its value on a hidden input, so the label points at
+      // the visible one the picker already carries the id on.
+      if (!mount) control.setAttribute('id', id);
       inputs[f.key] = { control: control, spec: f };
       grid.appendChild(el('div', { class: 'field' + (f.wide ? ' wide' : '') }, [
-        el('label', { for: id, text: f.label }), control
+        el('label', { for: id, text: f.label }), mount || control
       ]));
     });
 
@@ -134,7 +261,7 @@
     }
 
     function focusFirst() {
-      var first = grid.querySelector('input, select');
+      var first = grid.querySelector('input:not([type="hidden"]), select');
       if (first) first.focus();
     }
 
@@ -178,6 +305,17 @@
     ]);
   }
 
+  /* Saving a recurring definition can quietly do two other things — fill in the
+     months since it started, and adopt the entries it made before it had an
+     account. Both are reported, because a balance that moved on its own is
+     alarming when it is not explained. */
+  function templateToast(saved, added, linked) {
+    var parts = [saved];
+    if (added) parts.push(S.plural(added, 'entry', 'entries') + ' added');
+    if (linked) parts.push(S.plural(linked, 'past entry', 'past entries') + ' linked');
+    return parts.join(' · ');
+  }
+
   /* The "set it once" panel, shared by income and bills. Recurring definitions
      are edited rarely, so it stays folded away behind its own summary line. */
   function recurringSection(cfg) {
@@ -214,12 +352,11 @@
               // ever generated before it.
               data.anchor = view.period;
               data.generatedThrough = null;
-              S.upsert(cfg.collection, data);
+              var template = S.upsert(cfg.collection, data);
+              var linked = S.linkGeneratedTo(cfg.collection, template);
               var added = S.catchUp();
               render();
-              toast(added.total
-                ? cfg.saved + ' · ' + S.plural(added.total, 'entry', 'entries') + ' added'
-                : cfg.saved);
+              toast(templateToast(cfg.saved, added.total, linked));
             }
           }, [
             form.node,
@@ -242,10 +379,11 @@
           var data = form.read();
           if (!data) { toast('Fill in the required fields'); return; }
           data.id = record.id;
-          onSave(data);
+          // A save that did more than save says so; anything else just saved.
+          var message = onSave(data);
           dialog.close(); dialog.remove();
           render();
-          toast('Saved');
+          toast(typeof message === 'string' && message ? message : 'Saved');
         }
       }, [
         el('div', { class: 'dialog-head', text: title }),
@@ -288,12 +426,16 @@
 
   /* ------------------------------------------------------------ field specs */
 
+  /* 21 is what most jewellery sold in Egypt is; 24 is bullion and coins. */
+  var KARAT_LABELS = { 24: '24k — pure / bullion', 22: '22k', 21: '21k — usual here', 18: '18k', 14: '14k' };
+
   var FIELDS = {
     income: [
       { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
       { key: 'source', label: 'Source', type: 'text', placeholder: 'Employer or client', required: true },
       { key: 'category', label: 'Category', type: 'select', options: S.INCOME_CATEGORIES, def: 'Salary' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid into', type: 'account', def: function () { return lastAccountFor('income'); } },
       { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
@@ -302,6 +444,7 @@
       { key: 'item', label: 'What you bought', type: 'text', placeholder: 'e.g. weekly shop', required: true },
       { key: 'category', label: 'Category', type: 'select', options: S.PURCHASE_CATEGORIES, def: 'Groceries' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('purchases'); } },
       { key: 'method', label: 'Paid with', type: 'select', options: S.PAYMENT_METHODS, def: 'Card' },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
@@ -311,6 +454,7 @@
       { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
       { key: 'payDay', label: 'Paid on day', type: 'number', min: 1, step: 1, placeholder: '28' },
       { key: 'expected', label: 'Amount', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid into', type: 'account', def: function () { return lastAccountFor('income'); } },
       { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
       { key: 'active', label: 'Active', type: 'checkbox', def: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
@@ -322,6 +466,7 @@
       { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
       { key: 'dueDay', label: 'Due day', type: 'number', min: 1, step: 1, placeholder: '1' },
       { key: 'expected', label: 'Typical amount', type: 'money' },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('bills'); } },
       { key: 'method', label: 'Paid by', type: 'select', options: S.PAYMENT_METHODS, def: 'Direct Debit' },
       { key: 'active', label: 'Active', type: 'checkbox', def: true }
     ],
@@ -331,6 +476,7 @@
       { key: 'provider', label: 'Provider', type: 'text' },
       { key: 'dueDate', label: 'Due date', type: 'date', required: true },
       { key: 'amount', label: 'Amount billed', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('bills'); } },
       { key: 'units', label: 'Units used', type: 'number', placeholder: 'kWh / m³' },
       { key: 'unitRate', label: 'Rate per unit', type: 'number', placeholder: 'e.g. 0.31' },
       { key: 'paidDate', label: 'Date paid', type: 'date' },
@@ -338,44 +484,77 @@
       { key: 'notes', label: 'Notes', type: 'text', wide: true }
     ],
     account: [
-      { key: 'name', label: 'Account name', type: 'text', placeholder: 'e.g. Emergency Fund', required: true },
-      { key: 'type', label: 'Type', type: 'select', options: S.ACCOUNT_TYPES, def: 'Savings' },
+      { key: 'name', label: 'Account name', type: 'text', placeholder: 'e.g. Visa, Meeza, Emergency Fund', required: true },
+      { key: 'type', label: 'Type', type: 'select', options: S.ACCOUNT_TYPES, def: 'Current Account' },
       { key: 'opening', label: 'Opening balance', type: 'money' },
       { key: 'target', label: 'Target (optional)', type: 'money' },
       { key: 'notes', label: 'Notes', type: 'text', wide: true }
+    ],
+    gold: [
+      { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
+      {
+        key: 'direction', label: 'Bought or sold', type: 'select', options: ['buy', 'sell'],
+        labels: { buy: 'Bought', sell: 'Sold' }, def: 'buy'
+      },
+      { key: 'karat', label: 'Karat', type: 'select', options: S.GOLD_KARATS.map(String), labels: KARAT_LABELS, def: '21' },
+      { key: 'grams', label: 'Grams', type: 'number', step: '0.001', min: 0, placeholder: 'e.g. 8', required: true },
+      { key: 'amount', label: 'Total paid', type: 'money', required: true },
+      { key: 'accountId', label: 'Paid from', type: 'account', def: function () { return lastAccountFor('gold'); } },
+      { key: 'dealer', label: 'Shop', type: 'text', placeholder: 'Optional' },
+      { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ]
   };
 
+  /* Movements between accounts. A transfer needs two accounts, so it is only
+     offered once there are two to move between. */
   function savingsFields() {
-    var accounts = S.state.accounts;
+    var directions = S.state.accounts.length > 1 ? ['transfer', 'in', 'out'] : ['in', 'out'];
     return [
       { key: 'date', label: 'Date', type: 'date', required: true, def: S.todayISO },
       {
-        key: 'accountId', label: 'Account', type: 'select',
-        options: accounts.map(function (a) { return a.id; }), def: accounts.length ? accounts[0].id : ''
+        key: 'direction', label: 'Movement', type: 'select', options: directions,
+        labels: { transfer: 'Transfer between accounts', in: 'Money in (from outside)', out: 'Money out (to outside)' },
+        def: directions[0]
       },
-      { key: 'direction', label: 'Direction', type: 'select', options: ['in', 'out'], def: 'in' },
+      {
+        key: 'fromAccountId', label: 'From account', type: 'account',
+        def: function () { return lastAccountFor('income'); }
+      },
+      { key: 'accountId', label: 'To account', type: 'account', def: function () { return defaultSavingsAccount(); } },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ];
   }
 
-  /* Account ids and in/out are storage values; show people words. */
-  function relabelSavingsForm(scope) {
+  /* Where money put aside tends to go: the first savings-type account. */
+  function defaultSavingsAccount() {
+    var pot = S.state.accounts.filter(S.isSavingsAccount)[0] || S.state.accounts[0];
+    return pot ? pot.id : '';
+  }
+
+  /* "From" only means anything for a transfer, so it is hidden otherwise
+     rather than left on screen collecting a value nobody asked for. */
+  function wireMovementForm(scope) {
     if (!scope) return;
-    var accountSelect = scope.querySelector('select[name="accountId"]');
-    if (accountSelect) {
-      Array.prototype.forEach.call(accountSelect.options, function (opt) {
-        var account = S.byId('accounts', opt.value);
-        if (account) opt.textContent = account.name;
-      });
+    var direction = scope.querySelector('select[name="direction"]');
+    var from = scope.querySelector('select[name="fromAccountId"]');
+    var to = scope.querySelector('select[name="accountId"]');
+    if (!direction || !from || !to) return;
+    var fromField = from.closest('.field');
+    var toLabel = to.closest('.field').querySelector('label');
+
+    function sync() {
+      var isTransfer = direction.value === 'transfer';
+      if (fromField) fromField.style.display = isTransfer ? '' : 'none';
+      if (toLabel) toLabel.textContent = direction.value === 'out' ? 'From account' : 'To account';
     }
-    var dirSelect = scope.querySelector('select[name="direction"]');
-    if (dirSelect) {
-      Array.prototype.forEach.call(dirSelect.options, function (opt) {
-        opt.textContent = opt.value === 'out' ? 'Withdrawal (out)' : 'Deposit (in)';
-      });
-    }
+    direction.addEventListener('change', sync);
+    sync();
+  }
+
+  function accountName(id) {
+    var account = S.byId('accounts', id);
+    return account ? account.name : '';
   }
 
   /* -------------------------------------------------------------- dashboard */
@@ -430,6 +609,7 @@
     var period = view.period;
     var s = S.summary(period);
     var upcoming = S.upcomingBills(45);
+    var gold = S.goldSummary();
 
     return el('div', { class: 'stack' }, [
       el('div', { class: 'figures' }, [
@@ -489,8 +669,8 @@
 
           el('section', { class: 'sheet' }, [
             el('div', { class: 'sheet-head' }, [
-              el('h2', { text: 'Savings' }),
-              el('span', { class: 'muted spacer num', text: money(S.totalSavings()) })
+              el('h2', { text: 'Accounts' }),
+              el('span', { class: 'muted spacer num', text: money(S.totalSavings() + gold.value) })
             ]),
             el('div', { class: 'sheet-body' }, [
               S.state.accounts.length
@@ -506,8 +686,13 @@
                     ]) : null,
                     a.target ? el('div', { class: 'muted', text: Math.round((balance / a.target) * 100) + '% of ' + money(a.target) }) : null
                   ]);
-                }))
-                : el('div', { class: 'empty' }, [el('strong', { text: 'No accounts yet' }), 'Add one on the Savings tab.'])
+                }).concat(gold.value ? [el('div', {}, [
+                  el('div', { class: 'bar-row' }, [
+                    el('div', { class: 'bar-name', text: 'Gold · ' + gold.grams.toFixed(2) + ' g' }),
+                    el('div', { class: 'bar-value', text: money(gold.value) })
+                  ])
+                ])] : []))
+                : el('div', { class: 'empty' }, [el('strong', { text: 'No accounts yet' }), 'Add one on the Accounts tab.'])
             ])
           ])
         ])
@@ -519,21 +704,43 @@
 
   function renderIncome() {
     var period = view.period;
-    var records = S.sortByDateDesc(S.incomeIn(period), 'date');
+    var all = isAllTime('income');
+    var records = S.sortByDateDesc(all ? S.state.income : S.incomeIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
     var templates = S.state.incomeTemplates;
+
+    function row(r) {
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', {}, [
+          el('div', { text: r.source }),
+          // Generated rows are marked so you can tell what the app filled
+          // in from what you entered by hand.
+          r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
+        ]),
+        el('td', { class: 'muted', text: r.category }),
+        el('td', { class: 'num', text: money(r.amount) }),
+        accountCell(r),
+        el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
+        rowActions(
+          function () { openEditor('Edit income', FIELDS.income, r, function (d) { S.upsert('income', d); }); },
+          function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
+        )
+      ]);
+    }
 
     return el('div', { class: 'stack' }, [
       addSection('add-income', 'One-off income', 'Add income', FIELDS.income, function (data) {
         S.upsert('income', data);
-        toast('Income added');
+        followDate(data.date, 'Income added');
       }, !records.length && !templates.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(records.length, 'entry', 'entries') }),
-          templates.length ? el('button', {
+          el('h2', { text: all ? 'All income' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'entry', 'entries') }),
+          el('div', { class: 'spacer' }, [scopeToggle('income')]),
+          !all && templates.length ? el('button', {
             text: 'Generate from recurring',
             onclick: function () {
               var made = S.generateIncome(period);
@@ -545,28 +752,12 @@
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Date' }, { label: 'Source' }, { label: 'Category' }, { label: 'Amount', num: true },
-            { label: 'Method' }, { label: 'Notes' }, { label: '', actions: true }],
-          records.length ? records.map(function (r) {
-            return el('tr', {}, [
-              el('td', { class: 'num', text: r.date }),
-              el('td', {}, [
-                el('div', { text: r.source }),
-                // Generated rows are marked so you can tell what the app filled
-                // in from what you entered by hand.
-                r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
-              ]),
-              el('td', { class: 'muted', text: r.category }),
-              el('td', { class: 'num', text: money(r.amount) }),
-              el('td', { class: 'muted', text: r.method || '—' }),
-              el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
-              rowActions(
-                function () { openEditor('Edit income', FIELDS.income, r, function (d) { S.upsert('income', d); }); },
-                function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period),
-            templates.length ? 'Nothing is due from your recurring income this month.'
-              : 'Set your salary up once below and it will appear every month on its own.')]
+            { label: 'Account' }, { label: 'Notes' }, { label: '', actions: true }],
+          records.length ? listRows('income', records, 'date', 7, row)
+            : [emptyRow(7, all ? 'No income recorded yet' : 'No income in ' + S.periodLabel(period),
+              all ? 'Everything you add, in any month, is listed here.'
+                : templates.length ? 'Nothing is due from your recurring income this month.'
+                  : 'Set your salary up once below and it will appear every month on its own.')]
         )])
       ]),
 
@@ -586,7 +777,10 @@
         templates: templates,
         row: function (t) {
           return el('tr', {}, [
-            el('td', { text: t.source }),
+            el('td', {}, [
+              el('div', { text: t.source }),
+              t.accountId ? el('span', { class: 'cell-sub', text: 'into ' + accountName(t.accountId) }) : null
+            ]),
             el('td', { class: 'muted', text: t.category }),
             el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
             el('td', { class: 'num', text: 'day ' + (t.payDay || 1) }),
@@ -595,8 +789,12 @@
             el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
             rowActions(
               function () {
-                openEditor('Edit recurring income', FIELDS.incomeTemplate, t,
-                  function (d) { S.upsert('incomeTemplates', d); });
+                openEditor('Edit recurring income', FIELDS.incomeTemplate, t, function (d) {
+                  var linked = S.linkGeneratedTo('incomeTemplates', S.upsert('incomeTemplates', d));
+                  return linked
+                    ? 'Saved · ' + S.plural(linked, 'past entry', 'past entries') + ' linked to ' + accountName(d.accountId)
+                    : null;
+                });
               },
               function () { if (confirmDelete('recurring income')) { S.remove('incomeTemplates', t.id); render(); } }
             )
@@ -627,10 +825,12 @@
     var statusClass = b.status === 'paid' ? 'paid' : (overdue ? 'overdue' : 'due');
     var statusText = b.status === 'paid' ? 'Paid' : (overdue ? 'Overdue' : 'Unpaid');
 
+    var sub = [b.provider || '', b.accountId ? 'from ' + accountName(b.accountId) : ''].filter(Boolean).join(' · ');
+
     return el('tr', {}, [
       el('td', {}, [
         el('div', { text: b.name }),
-        b.provider ? el('span', { class: 'cell-sub', text: b.provider }) : null
+        sub ? el('span', { class: 'cell-sub', text: sub }) : null
       ]),
       el('td', { class: 'muted', text: b.category }),
       el('td', { class: 'num', text: b.dueDate || '—' }),
@@ -676,8 +876,11 @@
 
   function renderBills() {
     var period = view.period;
-    var bills = S.billsIn(period).slice().sort(function (a, b) {
-      return String(a.dueDate).localeCompare(String(b.dueDate));
+    var all = isAllTime('bills');
+    var bills = (all ? S.state.bills.slice() : S.billsIn(period).slice()).sort(function (a, b) {
+      // Newest first when reading history, soonest first when working a month.
+      return all ? String(b.dueDate).localeCompare(String(a.dueDate))
+        : String(a.dueDate).localeCompare(String(b.dueDate));
     });
     var total = S.sum(bills, function (b) { return b.amount; });
     var paid = S.sum(bills.filter(function (b) { return b.status === 'paid'; }), function (b) { return b.amount; });
@@ -687,23 +890,25 @@
       /* This month's bills lead, because that is the monthly job. */
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: money(paid) + ' paid of ' + money(total) }),
-          el('button', {
+          el('h2', { text: all ? 'All bills' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: money(paid) + ' paid of ' + money(total) }),
+          el('div', { class: 'spacer' }, [scopeToggle('bills')]),
+          !all ? el('button', {
             text: 'Generate from recurring',
             onclick: function () {
               var made = S.generateBills(period);
               render();
               toast(made ? 'Added ' + S.plural(made, 'bill') : 'Already up to date');
             }
-          }),
+          }) : null,
           el('button', {
             class: 'primary', text: 'Add bill',
             onclick: function () {
               openEditor('Add bill', FIELDS.bill, {
                 id: null, templateId: null, name: '', category: 'Other', provider: '',
                 period: period, dueDate: S.dueDateFor(period, new Date().getDate()),
-                amount: 0, units: null, unitRate: null, status: 'unpaid', paidDate: '', method: '', notes: ''
+                amount: 0, accountId: lastAccountFor('bills'),
+                units: null, unitRate: null, status: 'unpaid', paidDate: '', method: '', notes: ''
               }, function (d) {
                 d.id = null;
                 S.upsert('bills', S.normalizeBill(d, period));
@@ -714,10 +919,11 @@
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Bill' }, { label: 'Category' }, { label: 'Due' }, { label: 'Amount', num: true },
             { label: 'Units', num: true }, { label: 'Unit' }, { label: 'Status' }, { label: '', actions: true }],
-          bills.length ? bills.map(billRow)
-            : [emptyRow(8, 'No bills for ' + S.periodLabel(period),
-              templates.length ? 'Nothing is due from your recurring bills this month.'
-                : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
+          bills.length ? listRows('bills', bills, 'dueDate', 8, billRow)
+            : [emptyRow(8, all ? 'No bills recorded yet' : 'No bills for ' + S.periodLabel(period),
+              all ? 'Every bill you record, in any month, is listed here.'
+                : templates.length ? 'Nothing is due from your recurring bills this month.'
+                  : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
         )])
       ]),
 
@@ -737,7 +943,10 @@
         templates: templates,
         row: function (t) {
           return el('tr', {}, [
-            el('td', { text: t.name }),
+            el('td', {}, [
+              el('div', { text: t.name }),
+              t.accountId ? el('span', { class: 'cell-sub', text: 'from ' + accountName(t.accountId) }) : null
+            ]),
             el('td', { class: 'muted', text: t.category }),
             el('td', { class: 'muted', text: t.provider || '—' }),
             el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
@@ -746,7 +955,14 @@
             el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
             el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
             rowActions(
-              function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
+              function () {
+              openEditor('Edit recurring bill', FIELDS.template, t, function (d) {
+                var linked = S.linkGeneratedTo('billTemplates', S.upsert('billTemplates', d));
+                return linked
+                  ? 'Saved · ' + S.plural(linked, 'past bill') + ' linked to ' + accountName(d.accountId)
+                  : null;
+              });
+            },
               function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
             )
           ]);
@@ -759,38 +975,44 @@
 
   function renderPurchases() {
     var period = view.period;
-    var records = S.sortByDateDesc(S.purchasesIn(period), 'date');
+    var all = isAllTime('purchases');
+    var records = S.sortByDateDesc(all ? S.state.purchases : S.purchasesIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
+
+    function row(r) {
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', { text: r.item }),
+        el('td', { class: 'muted', text: r.category }),
+        el('td', { class: 'num', text: money(r.amount) }),
+        accountCell(r),
+        el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
+        rowActions(
+          function () { openEditor('Edit purchase', FIELDS.purchase, r, function (d) { S.upsert('purchases', d); }); },
+          function () { if (confirmDelete('purchase')) { S.remove('purchases', r.id); render(); } }
+        )
+      ]);
+    }
 
     return el('div', { class: 'stack' }, [
       addSection('add-purchase', 'Purchases', 'Add purchase', FIELDS.purchase, function (data) {
         S.upsert('purchases', data);
-        toast('Purchase added');
+        followDate(data.date, 'Purchase added');
       }, !records.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(records.length, 'item') }),
+          el('h2', { text: all ? 'All purchases' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'item') }),
+          el('div', { class: 'spacer' }, [scopeToggle('purchases')]),
           el('span', { class: 'num', text: money(total) })
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
           [{ label: 'Date' }, { label: 'Item' }, { label: 'Category' }, { label: 'Amount', num: true },
-            { label: 'Paid with' }, { label: 'Notes' }, { label: '', actions: true }],
-          records.length ? records.map(function (r) {
-            return el('tr', {}, [
-              el('td', { class: 'num', text: r.date }),
-              el('td', { text: r.item }),
-              el('td', { class: 'muted', text: r.category }),
-              el('td', { class: 'num', text: money(r.amount) }),
-              el('td', { class: 'muted', text: r.method || '—' }),
-              el('td', { class: 'truncate muted', title: r.notes || '', text: r.notes || '' }),
-              rowActions(
-                function () { openEditor('Edit purchase', FIELDS.purchase, r, function (d) { S.upsert('purchases', d); }); },
-                function () { if (confirmDelete('purchase')) { S.remove('purchases', r.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(7, 'Nothing bought in ' + S.periodLabel(period), 'Groceries, fuel, clothes — anything that is not a recurring bill.')]
+            { label: 'Account' }, { label: 'Notes' }, { label: '', actions: true }],
+          records.length ? listRows('purchases', records, 'date', 7, row)
+            : [emptyRow(7, all ? 'Nothing bought yet' : 'Nothing bought in ' + S.periodLabel(period),
+              'Groceries, fuel, clothes — anything that is not a recurring bill.')]
         )])
       ])
     ]);
@@ -798,69 +1020,138 @@
 
   /* ---------------------------------------------------------------- savings */
 
+  /* One line of an account's story: where the balance came from. */
+  function flowLine(label, amount, negative) {
+    if (!amount) return null;
+    return el('div', { class: 'flow' + (negative ? ' is-out' : '') }, [
+      el('span', { text: label }),
+      el('span', { class: 'num', text: (negative ? '−' : '+') + money(amount) })
+    ]);
+  }
+
+  function accountCard(a) {
+    var flows = S.accountFlows(a.id);
+    var balance = S.accountBalance(a.id);
+    var lines = [
+      flowLine('Opening', flows.opening, flows.opening < 0),
+      flowLine('Income', flows.income),
+      flowLine('Moved in', flows.savedIn),
+      flowLine('Purchases', flows.purchases, true),
+      flowLine('Bills paid', flows.bills, true),
+      flowLine('Gold', flows.gold, true),
+      flowLine('Moved out', flows.savedOut, true)
+    ].filter(Boolean);
+
+    return el('div', { class: 'account' }, [
+      el('div', { class: 'account-top' }, [
+        el('div', {}, [
+          el('div', { class: 'account-name', text: a.name }),
+          el('div', { class: 'muted', text: a.type })
+        ]),
+        el('div', { class: 'actions', style: 'margin-left:auto' }, [
+          el('button', {
+            class: 'quiet small', text: 'Edit',
+            onclick: function () { openEditor('Edit account', FIELDS.account, a, function (d) { S.upsert('accounts', d); }); }
+          }),
+          el('button', {
+            class: 'quiet small danger', text: 'Delete',
+            onclick: function () {
+              if (root.confirm('Delete "' + a.name + '" and all of its movements? This cannot be undone.\n\n' +
+                'Income, bills and purchases linked to it are kept, but stop counting towards any balance.')) {
+                S.remove('accounts', a.id); render();
+              }
+            }
+          })
+        ])
+      ]),
+      el('div', { class: 'account-balance' + (balance < 0 ? ' is-negative' : ''), text: money(balance) }),
+      a.target ? el('div', { class: 'progress' }, [
+        el('div', { style: 'width:' + Math.min(100, Math.max(0, (balance / a.target) * 100)) + '%' })
+      ]) : null,
+      a.target ? el('div', { class: 'muted', text: Math.round((balance / a.target) * 100) + '% of ' + money(a.target) + ' target' }) : null,
+      lines.length ? el('div', { class: 'flows' }, lines) : el('div', { class: 'muted', text: 'Nothing has moved yet.' })
+    ]);
+  }
+
+  function movementRow(t) {
+    var to = accountName(t.accountId) || '(deleted)';
+    var transfer = t.direction === 'transfer';
+    var out = t.direction === 'out';
+    var where = transfer ? (accountName(t.fromAccountId) || '(deleted)') + ' → ' + to : to;
+    var label = transfer ? 'Transfer' : (out ? 'Out' : 'In');
+
+    return el('tr', {}, [
+      el('td', { class: 'num', text: t.date }),
+      el('td', { text: where }),
+      el('td', {}, [el('span', { class: 'status ' + (transfer ? 'due' : (out ? 'overdue' : 'paid')), text: label })]),
+      el('td', { class: 'num', text: (out ? '−' : '+') + money(t.amount) }),
+      el('td', { class: 'truncate muted', title: t.notes || '', text: t.notes || '' }),
+      rowActions(
+        function () {
+          openEditor('Edit movement', savingsFields(), t,
+            function (d) {
+              if (d.direction !== 'transfer') d.fromAccountId = '';
+              S.upsert('savingsTx', d);
+            },
+            function (dialog) { wireMovementForm(dialog); });
+        },
+        function () { if (confirmDelete('movement')) { S.remove('savingsTx', t.id); render(); } }
+      )
+    ]);
+  }
+
   function renderSavings() {
     var period = view.period;
+    var all = isAllTime('movements');
     var accounts = S.state.accounts;
-    var txs = S.sortByDateDesc(S.savingsTxIn(period), 'date');
+    var txs = S.sortByDateDesc(all ? S.state.savingsTx : S.savingsTxIn(period), 'date');
+    var gold = S.goldSummary();
 
     var moveSection = null;
     if (accounts.length) {
-      moveSection = addSection('add-saving', 'Movements', 'Record movement', savingsFields(), function (data) {
+      moveSection = addSection('add-saving', 'Movements between accounts', 'Record movement', savingsFields(), function (data) {
+        if (data.direction !== 'transfer') data.fromAccountId = '';
+        else if (data.fromAccountId === data.accountId) {
+          toast('A transfer needs two different accounts');
+          return;
+        }
         S.upsert('savingsTx', data);
-        toast(data.direction === 'out' ? 'Withdrawal recorded' : 'Deposit recorded');
+        followDate(data.date, data.direction === 'transfer' ? 'Transfer recorded'
+          : data.direction === 'out' ? 'Withdrawal recorded' : 'Deposit recorded');
       }, !txs.length);
-      relabelSavingsForm(moveSection);
+      wireMovementForm(moveSection);
     }
 
     return el('div', { class: 'stack' }, [
+      el('div', { class: 'figures' }, [
+        figure('Across all accounts', money(S.totalSavings()), S.plural(accounts.length, 'account')),
+        figure('In savings pots', money(S.savingsBalance()),
+          S.plural(accounts.filter(S.isSavingsAccount).length, 'pot')),
+        figure('Gold', money(gold.value), gold.value ? gold.pure.toFixed(2) + ' g of pure gold' : 'none held'),
+        figure('Total worth', money(S.totalSavings() + gold.value), 'accounts and gold together')
+      ]),
+
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: 'Accounts & pots' }),
-          el('span', { class: 'muted spacer num', text: money(S.totalSavings()) }),
+          el('h2', { text: 'Accounts, cards & pots' }),
+          el('span', { class: 'muted spacer' },
+            'Every income, purchase and paid bill moves one of these balances.'),
           el('button', {
             class: 'primary', text: 'Add account',
             onclick: function () {
-              openEditor('Add savings account', FIELDS.account,
-                { id: null, name: '', type: 'Savings', opening: 0, target: 0, notes: '' },
+              openEditor('Add account', FIELDS.account,
+                { id: null, name: '', type: 'Current Account', opening: 0, target: 0, notes: '' },
                 function (d) { d.id = null; S.upsert('accounts', d); });
             }
           })
         ]),
         el('div', { class: 'sheet-body' }, [
           accounts.length
-            ? el('div', { class: 'accounts' }, accounts.map(function (a) {
-              var balance = S.accountBalance(a.id);
-              return el('div', { class: 'account' }, [
-                el('div', { class: 'account-top' }, [
-                  el('div', {}, [
-                    el('div', { class: 'account-name', text: a.name }),
-                    el('div', { class: 'muted', text: a.type })
-                  ]),
-                  el('div', { class: 'actions', style: 'margin-left:auto' }, [
-                    el('button', {
-                      class: 'quiet small', text: 'Edit',
-                      onclick: function () { openEditor('Edit account', FIELDS.account, a, function (d) { S.upsert('accounts', d); }); }
-                    }),
-                    el('button', {
-                      class: 'quiet small danger', text: 'Delete',
-                      onclick: function () {
-                        if (root.confirm('Delete "' + a.name + '" and all of its movements? This cannot be undone.')) {
-                          S.remove('accounts', a.id); render();
-                        }
-                      }
-                    })
-                  ])
-                ]),
-                el('div', { class: 'account-balance', text: money(balance) }),
-                a.target ? el('div', { class: 'progress' }, [
-                  el('div', { style: 'width:' + Math.min(100, Math.max(0, (balance / a.target) * 100)) + '%' })
-                ]) : null,
-                el('div', { class: 'muted', text: a.target ? Math.round((balance / a.target) * 100) + '% of ' + money(a.target) + ' target' : 'No target set' })
-              ]);
-            }))
+            ? el('div', { class: 'accounts' }, accounts.map(accountCard))
             : el('div', { class: 'empty' }, [
-              el('strong', { text: 'No savings accounts yet' }),
-              'Add an emergency fund, a holiday pot, or anywhere you put money aside.'
+              el('strong', { text: 'No accounts yet' }),
+              'Add the card your salary lands on, and anywhere you put money aside. ' +
+              'Every entry can then say which account it moved.'
             ])
         ])
       ]),
@@ -869,32 +1160,267 @@
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
-          el('h2', { text: S.periodLabel(period) }),
-          el('span', { class: 'muted spacer', text: S.plural(txs.length, 'movement') })
+          el('h2', { text: all ? 'All movements' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(txs.length, 'movement') }),
+          el('div', { class: 'spacer' }, [scopeToggle('movements')])
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
-          [{ label: 'Date' }, { label: 'Account' }, { label: 'Direction' }, { label: 'Amount', num: true },
+          [{ label: 'Date' }, { label: 'Account' }, { label: 'Movement' }, { label: 'Amount', num: true },
             { label: 'Notes' }, { label: '', actions: true }],
-          txs.length ? txs.map(function (t) {
-            var account = S.byId('accounts', t.accountId);
-            var out = t.direction === 'out';
-            return el('tr', {}, [
-              el('td', { class: 'num', text: t.date }),
-              el('td', { text: account ? account.name : '(deleted)' }),
-              el('td', {}, [el('span', { class: 'status ' + (out ? 'overdue' : 'paid'), text: out ? 'Withdrawal' : 'Deposit' })]),
-              el('td', { class: 'num', text: (out ? '−' : '+') + money(t.amount) }),
-              el('td', { class: 'truncate muted', title: t.notes || '', text: t.notes || '' }),
-              rowActions(
-                function () {
-                  openEditor('Edit movement', savingsFields(), t,
-                    function (d) { S.upsert('savingsTx', d); },
-                    function (dialog) { relabelSavingsForm(dialog); });
-                },
-                function () { if (confirmDelete('movement')) { S.remove('savingsTx', t.id); render(); } }
-              )
-            ]);
-          }) : [emptyRow(6, 'No movements in ' + S.periodLabel(period),
-            accounts.length ? 'Record what you put aside or took out.' : 'Add an account first.')]
+          txs.length ? listRows('movements', txs, 'date', 6, movementRow)
+            : [emptyRow(6, all ? 'No movements recorded yet' : 'No movements in ' + S.periodLabel(period),
+              accounts.length ? 'Record what you moved from one account to another.' : 'Add an account first.')]
+        )])
+      ])
+    ]);
+  }
+
+  /* ------------------------------------------------------------------- gold */
+
+  function goldPriceLine() {
+    var snapshot = S.latestGoldPrice();
+    var manual = (Number(S.state.settings.goldManualPrice) || 0) > 0;
+    var premium = Number(S.state.settings.goldPremium) || 0;
+
+    if (!snapshot && !manual) {
+      return el('div', { class: 'empty' }, [
+        el('strong', { text: 'No price yet' }),
+        S.state.settings.goldSync === false
+          ? 'Price syncing is switched off. Turn it on below, or type a price in yourself.'
+          : 'Press "Update price" to fetch today\'s rate, or type one in yourself below.'
+      ]);
+    }
+
+    var note = manual
+      ? 'Your own price, used exactly as typed'
+      : 'World spot × USD/EGP' + (premium ? ' + ' + premium + '% shop premium' : '')
+        + ' · $' + (snapshot.usdPerOz || 0).toFixed(2) + '/oz · E£' + (snapshot.egpPerUsd || 0).toFixed(2) + '/$';
+
+    return el('div', {}, [
+      el('div', { class: 'gold-prices' }, S.GOLD_KARATS.map(function (karat) {
+        return el('div', { class: 'gold-price' + (karat === 21 ? ' is-lead' : '') }, [
+          el('div', { class: 'label', text: karat + 'k' }),
+          el('div', { class: 'gold-price-value', text: money(S.goldPricePerGram(karat)) }),
+          el('div', { class: 'muted', text: 'per gram' })
+        ]);
+      })),
+      el('p', { class: 'muted', style: 'margin:12px 0 0' },
+        note + (manual || !snapshot ? '' : ' · taken ' + snapshot.date))
+    ]);
+  }
+
+  function goldPriceSettings() {
+    var settings = S.state.settings;
+    var sync = el('input', { type: 'checkbox' });
+    sync.checked = settings.goldSync !== false;
+    var premium = el('input', { type: 'number', step: '0.5', min: '0', max: '100', value: String(Number(settings.goldPremium) || 0) });
+    var manual = el('input', {
+      type: 'text', inputmode: 'decimal',
+      value: Number(settings.goldManualPrice) ? String(S.toMajor(settings.goldManualPrice).toFixed(2)) : '',
+      placeholder: 'leave empty to use the synced price'
+    });
+
+    return el('div', {}, [
+      el('p', { class: 'muted', style: 'margin-top:0' },
+        'Gold is quoted worldwide in dollars per ounce. This app fetches that figure and the ' +
+        'pound rate once a day and works out the price per gram — which is the bourse price, ' +
+        'a little under what a shop quotes. The premium closes that gap. If the figure here ' +
+        'ever drifts from the board in the shop, type theirs in and nothing is fetched at all.'),
+      el('div', { class: 'form-grid' }, [
+        settingRow('Update the price online', sync, 'Once a day, when you open the app'),
+        settingRow('Shop premium %', premium, 'Starts at 2%, which matched the Cairo boards'),
+        settingRow('Your own price for 24k (per gram)', manual, 'Overrides everything above')
+      ]),
+      el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
+        el('button', {
+          class: 'primary', text: 'Save price settings',
+          onclick: function () {
+            settings.goldSync = sync.checked;
+            settings.goldPremium = Number(premium.value) || 0;
+            settings.goldManualPrice = S.parseMoney(manual.value);
+            S.save();
+            render();
+            toast('Price settings saved');
+          }
+        })
+      ])
+    ]);
+  }
+
+  /* A plain line of the daily readings — enough to see which way it is going. */
+  function goldSparkline() {
+    var history = S.state.goldPrices.slice()
+      .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); })
+      .slice(-60);
+    if (history.length < 2) return null;
+
+    var values = history.map(function (p) { return p.egpPerGram24 || 0; });
+    var min = Math.min.apply(null, values);
+    var max = Math.max.apply(null, values);
+    var span = (max - min) || 1;
+    var points = values.map(function (v, i) {
+      var x = (i / (values.length - 1)) * 100;
+      var y = 30 - ((v - min) / span) * 28 - 1;
+      return x.toFixed(2) + ',' + y.toFixed(2);
+    }).join(' ');
+
+    var svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 30');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Gold price per gram, last ' + history.length + ' readings');
+    var line = doc.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('points', points);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', 'currentColor');
+    line.setAttribute('stroke-width', '1');
+    line.setAttribute('vector-effect', 'non-scaling-stroke');
+    svg.appendChild(line);
+
+    return el('div', {}, [
+      svg,
+      el('div', { class: 'legend' }, [
+        el('span', { text: history[0].date + ' · ' + money(min) }),
+        el('span', { text: 'now · ' + money(values[values.length - 1]) })
+      ])
+    ]);
+  }
+
+  function renderGold() {
+    var period = view.period;
+    var all = isAllTime('gold');
+    var summary = S.goldSummary();
+    var holdings = S.goldHoldings();
+    var records = S.sortByDateDesc(all ? S.state.gold : S.goldIn(period), 'date');
+    var history = S.sortByDateDesc(S.state.goldPrices, 'date').slice(0, 14);
+    var spark = goldSparkline();
+
+    function row(r) {
+      var sold = r.direction === 'sell';
+      var grams = Number(r.grams) || 0;
+      return el('tr', {}, [
+        el('td', { class: 'num', text: r.date }),
+        el('td', {}, [
+          el('span', { class: 'status ' + (sold ? 'overdue' : 'paid'), text: sold ? 'Sold' : 'Bought' }),
+          r.dealer ? el('span', { class: 'cell-sub', text: r.dealer }) : null
+        ]),
+        el('td', { class: 'num', text: (Number(r.karat) || 24) + 'k' }),
+        el('td', { class: 'num', text: grams.toFixed(3) + ' g' }),
+        el('td', { class: 'num', text: (sold ? '+' : '−') + money(r.amount) }),
+        el('td', { class: 'num muted', text: grams ? money(Math.round((r.amount || 0) / grams)) + '/g' : '—' }),
+        el('td', {}, [
+          accountName(r.accountId)
+            ? el('div', { text: accountName(r.accountId) })
+            : el('span', { class: 'faint', text: 'not linked' })
+        ]),
+        rowActions(
+          function () {
+            openEditor('Edit gold entry', FIELDS.gold, r, function (d) {
+              d.karat = Number(d.karat);
+              S.upsert('gold', d);
+            });
+          },
+          function () { if (confirmDelete('gold entry')) { S.remove('gold', r.id); render(); } }
+        )
+      ]);
+    }
+
+    return el('div', { class: 'stack' }, [
+      el('div', { class: 'figures' }, [
+        figure('Gold held', summary.grams.toFixed(2) + ' g', summary.pure.toFixed(2) + ' g pure'),
+        figure('Worth today', money(summary.value), summary.price ? 'priced ' + summary.price.date : 'no price yet'),
+        figure('Paid for it', money(summary.invested), S.plural(S.state.gold.length, 'entry', 'entries')),
+        figure(summary.gain >= 0 ? 'Gain' : 'Loss', money(summary.gain),
+          summary.invested ? percent(summary.gainRate) + ' on what you paid' : 'nothing bought yet',
+          summary.gain < 0)
+      ]),
+
+      el('section', { class: 'sheet' }, [
+        el('div', { class: 'sheet-head' }, [
+          el('h2', { text: 'Price per gram' }),
+          el('span', { class: 'muted spacer' }, S.state.settings.goldSync === false ? 'syncing off' : 'updated once a day'),
+          el('button', {
+            text: root.GoldPrice.busy ? 'Updating…' : 'Update price',
+            disabled: root.GoldPrice.busy,
+            onclick: function () {
+              toast('Fetching today\'s price…');
+              root.GoldPrice.refresh({ manual: true }).then(function (result) {
+                render();
+                if (result.ok && result.partial) toast('Price updated, partly — ' + result.error);
+                else if (result.ok) toast('Price updated');
+                else toast(result.error || 'Could not update the price');
+              });
+            }
+          }),
+          el('button', {
+            'aria-expanded': isOpen('gold-settings') ? 'true' : 'false',
+            text: isOpen('gold-settings') ? 'Hide settings' : 'Price settings',
+            onclick: function () { toggle('gold-settings'); }
+          })
+        ]),
+        el('div', { class: 'sheet-body' }, [goldPriceLine()]),
+        isOpen('gold-settings') ? el('div', { class: 'disclosure-body' }, [goldPriceSettings()]) : null
+      ]),
+
+      el('div', { class: 'two-col' }, [
+        el('section', { class: 'sheet' }, [
+          el('div', { class: 'sheet-head' }, [
+            el('h2', { text: 'What you hold' }),
+            el('span', { class: 'muted spacer num', text: money(summary.value) })
+          ]),
+          el('div', { class: 'sheet-body flush' }, [table(
+            [{ label: 'Karat' }, { label: 'Grams', num: true }, { label: 'Price / g', num: true }, { label: 'Worth', num: true }],
+            holdings.length ? holdings.map(function (h) {
+              return el('tr', {}, [
+                el('td', { text: h.karat + 'k' }),
+                el('td', { class: 'num', text: h.grams.toFixed(3) }),
+                el('td', { class: 'num muted', text: money(S.goldPricePerGram(h.karat)) }),
+                el('td', { class: 'num', text: money(h.value) })
+              ]);
+            }) : [emptyRow(4, 'No gold held', 'Record what you bought below and it is valued at today\'s price.')]
+          )])
+        ]),
+
+        el('section', { class: 'sheet' }, [
+          el('div', { class: 'sheet-head' }, [
+            el('h2', { text: 'Price history' }),
+            el('span', { class: 'muted spacer', text: S.plural(S.state.goldPrices.length, 'reading') })
+          ]),
+          spark ? el('div', { class: 'sheet-body' }, [spark]) : null,
+          el('div', { class: 'sheet-body flush' }, [table(
+            [{ label: 'Date' }, { label: '24k / g', num: true }, { label: '$/oz', num: true }, { label: 'E£/$', num: true }],
+            history.length ? history.map(function (p) {
+              return el('tr', {}, [
+                el('td', { class: 'num', text: p.date }),
+                el('td', { class: 'num', text: money(p.egpPerGram24) }),
+                el('td', { class: 'num muted', text: (p.usdPerOz || 0).toFixed(2) }),
+                el('td', { class: 'num muted', text: (p.egpPerUsd || 0).toFixed(2) })
+              ]);
+            }) : [emptyRow(4, 'Nothing recorded yet', 'Each day you open the app, that day\'s price is kept here.')]
+          )])
+        ])
+      ]),
+
+      addSection('add-gold', 'Gold you bought or sold', 'Add gold', FIELDS.gold, function (data) {
+        data.karat = Number(data.karat);
+        data.pricePerGram = data.grams ? Math.round((data.amount || 0) / data.grams) : 0;
+        S.upsert('gold', data);
+        followDate(data.date, data.direction === 'sell' ? 'Sale recorded' : 'Purchase recorded');
+      }, !S.state.gold.length),
+
+      el('section', { class: 'sheet' }, [
+        el('div', { class: 'sheet-head' }, [
+          el('h2', { text: all ? 'All gold entries' : S.periodLabel(period) }),
+          el('span', { class: 'muted', text: S.plural(records.length, 'entry', 'entries') }),
+          el('div', { class: 'spacer' }, [scopeToggle('gold')])
+        ]),
+        el('div', { class: 'sheet-body flush' }, [table(
+          [{ label: 'Date' }, { label: 'Bought / sold' }, { label: 'Karat', num: true }, { label: 'Grams', num: true },
+            { label: 'Amount', num: true }, { label: 'Per gram', num: true }, { label: 'Account' }, { label: '', actions: true }],
+          records.length ? listRows('gold', records, 'date', 8, row)
+            : [emptyRow(8, all ? 'No gold recorded yet' : 'Nothing in ' + S.periodLabel(period),
+              'Every gram you buy is tracked against the live price.')]
         )])
       ])
     ]);
@@ -1133,7 +1659,8 @@
     { id: 'income', label: 'Income', render: renderIncome },
     { id: 'bills', label: 'Bills', render: renderBills },
     { id: 'purchases', label: 'Purchases', render: renderPurchases },
-    { id: 'savings', label: 'Savings', render: renderSavings },
+    { id: 'savings', label: 'Accounts', render: renderSavings },
+    { id: 'gold', label: 'Gold', render: renderGold },
     { id: 'settings', label: 'Settings', render: renderSettings }
   ];
 
@@ -1189,9 +1716,19 @@
     ]);
   }
 
+  /* Which tab the page currently shows. Re-rendering in place — saving a row,
+     opening a form — must not throw you back to the top; moving to another tab
+     must not drop you halfway down it. Those are different situations and the
+     scroll position is only worth keeping in the first. */
+  var rendered = null;
+
   function render() {
     var app = doc.getElementById('app');
+    var sameTab = rendered === view.tab;
     var scroll = root.scrollY;
+    // The calendar hangs outside #app, so it would outlive the field it belongs
+    // to if a render happened while it was open.
+    root.DatePicker.close();
     clear(app);
 
     if (view.bootError) {
@@ -1212,7 +1749,8 @@
 
     var tab = TABS.find(function (t) { return t.id === view.tab; }) || TABS[0];
     append(app, [renderTopbar(), el('main', {}, [storageNotice(), tab.render()])]);
-    root.scrollTo(0, scroll);
+    rendered = view.tab;
+    root.scrollTo(0, sameTab ? scroll : 0);
   }
 
   function init() {
@@ -1230,6 +1768,13 @@
       view.booting = false;
       if (result.migrated) S.save();
       render();
+
+      /* The price sync is the one thing here that reaches the network, so it
+         happens after the app is already usable and never blocks it. Nothing
+         announces itself: a quiet update is the point of "once a day". */
+      if (root.GoldPrice.isDue()) {
+        root.GoldPrice.refresh().then(function (outcome) { if (outcome.ok) render(); });
+      }
 
       if (result.migrated) {
         toast('Moved your existing records into the database');

@@ -80,18 +80,22 @@
   /* Column lists double as the object<->row mapping, so there is exactly one
      place to change when a field is added. */
   var TABLES = {
-    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'method', 'notes'],
-    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
-    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
-    bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
-    purchases: ['id', 'date', 'item', 'category', 'amount', 'method', 'notes'],
+    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'accountId', 'method', 'notes'],
+    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'accountId', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
+    purchases: ['id', 'date', 'item', 'category', 'amount', 'accountId', 'method', 'notes'],
     accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
-    savingsTx: ['id', 'date', 'accountId', 'direction', 'amount', 'notes']
+    savingsTx: ['id', 'date', 'accountId', 'fromAccountId', 'direction', 'amount', 'notes'],
+    gold: ['id', 'date', 'direction', 'karat', 'grams', 'pricePerGram', 'amount', 'accountId', 'dealer', 'notes'],
+    goldPrices: ['id', 'date', 'usdPerOz', 'egpPerUsd', 'egpPerGram24', 'source', 'fetchedAt']
   };
 
   var TYPES = {
     amount: 'INTEGER', expected: 'INTEGER', target: 'INTEGER', opening: 'INTEGER',
-    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
+    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL',
+    karat: 'INTEGER', grams: 'REAL', pricePerGram: 'INTEGER',
+    usdPerOz: 'REAL', egpPerUsd: 'REAL', egpPerGram24: 'INTEGER'
   };
 
   var SCHEMA = (function () {
@@ -107,6 +111,8 @@
     stmts.push('CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(date)');
     stmts.push('CREATE INDEX IF NOT EXISTS idx_bills_period ON bills(period)');
     stmts.push('CREATE INDEX IF NOT EXISTS idx_savings_date ON savingsTx(date)');
+    stmts.push('CREATE INDEX IF NOT EXISTS idx_gold_date ON gold(date)');
+    stmts.push('CREATE INDEX IF NOT EXISTS idx_goldprices_date ON goldPrices(date)');
     return stmts;
   }());
 
