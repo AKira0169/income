@@ -1,0 +1,5 @@
+# esbuild's install script only unpacks the platform binary it already ships as
+# an optional dependency. Answering here keeps `pnpm install` quiet and, more to
+# the point, records the decision rather than leaving it to an interactive prompt.
+allowBuilds:
+  esbuild: true

@@ -4,17 +4,24 @@
   "private": true,
   "description": "Offline single-file tracker for income, bills, utilities, purchases and savings, with Excel export",
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "node build.mjs",
+    "dev": "node dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "test": "npm run typecheck && node test/roundtrip.ts && node test/export.ts",
-    "test:browser": "npm run build && node test/browser.mjs",
-    "test:full": "npm install --no-save xlsx@0.18.5 && npm test && npm run test:browser"
+    "test": "pnpm typecheck && node test/roundtrip.ts && node test/export.ts",
+    "test:browser": "pnpm build && node test/browser.mjs",
+    "test:full": "pnpm test && pnpm test:browser"
+  },
+  "dependencies": {
+    "@preact/signals": "2.10.0",
+    "preact": "10.29.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
     "esbuild": "^0.28.1",
     "puppeteer-core": "^25.4.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "xlsx": "0.18.5"
   }
 }
