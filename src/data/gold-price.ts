@@ -1,4 +1,4 @@
-/* gold.ts — the one thing in this app that touches the network.
+/* data/gold-price.ts — the one thing in this app that touches the network.
 
    Gold is quoted worldwide in US dollars per troy ounce, so the Egyptian price
    per gram is that figure divided by 31.1034768 and multiplied by the pound
@@ -8,9 +8,16 @@
 
    Everything here is optional and failure is quiet. No reading is ever thrown
    away because a later fetch failed: the last good snapshot stays on screen with
-   the date it was taken, and a price you type in yourself always wins. */
+   the date it was taken, and a price you type in yourself always wins.
 
-import { latestGoldPrice, recordGoldPrice, state, todayISO } from '../store.ts';
+   It reads the signal rather than the store shim: this module is loaded by
+   state/app.ts's boot, and going through the shim would close an import cycle
+   between the two. */
+
+import { latestGoldPrice } from '../domain/gold.ts';
+import { todayISO } from '../domain/period.ts';
+import { app } from '../state/app.ts';
+import { recordGoldPrice } from '../state/actions.ts';
 import type { GoldPrice } from '../domain/types.ts';
 
 const SPOT_URL = 'https://api.gold-api.com/price/XAU';
@@ -80,8 +87,8 @@ async function fetchRate(): Promise<number> {
 /* True when today has no reading yet. "Once a day is enough" is the whole
    specification, so anything newer than midnight counts as current. */
 export function isDue(): boolean {
-  if (state.settings.goldSync === false) return false;
-  const latest = latestGoldPrice();
+  if (app.peek().settings.goldSync === false) return false;
+  const latest = latestGoldPrice(app.peek());
   return !latest || String(latest.date) < todayISO();
 }
 
@@ -126,7 +133,7 @@ export async function refresh(options: RefreshOptions = {}): Promise<RefreshResu
        other: an unreachable currency service should still leave the gold price
        fresh, valued at yesterday's rate. */
     const [spot, rate] = await Promise.all([attempt(fetchSpot()), attempt(fetchRate())]);
-    const previous = latestGoldPrice();
+    const previous = latestGoldPrice(app.peek());
 
     const usdPerOz = spot.ok ? spot.value : (previous?.usdPerOz ?? 0);
     const egpPerUsd = rate.ok ? rate.value : (previous?.egpPerUsd ?? 0);

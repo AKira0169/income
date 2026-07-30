@@ -54,8 +54,15 @@ try {
   tab.on('pageerror', (e) => errors.push(String(e)));
   tab.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
+  /* The app puts its route in the hash, so once it has run the URL is
+     `…income-tracker.html#/income/2026-07`. Navigating from that back to the
+     bare file:// URL differs only by fragment, which the browser treats as a
+     same-document navigation: nothing reloads, and the persistence checks below
+     would pass without SQLite ever having been re-opened. The explicit reload
+     is what makes them mean anything; the probe below is what proves it. */
   const open = async () => {
     await tab.goto(page, { waitUntil: 'load' });
+    await tab.reload({ waitUntil: 'load' });
     await tab.waitForSelector('.topbar', { timeout: 30000 });
   };
 
@@ -67,6 +74,34 @@ try {
     await tab.evaluate(() => globalThis.__app.backend()), 'indexeddb');
   check('every tab renders',
     await tab.evaluate(() => document.querySelectorAll('.tab').length), 7);
+
+  /* ---------------- hash routing ---------------- */
+  console.log('\nhash routing (reload and back/forward):');
+  const selectedTab = () => tab.evaluate(() =>
+    [...document.querySelectorAll('.tab')].find((b) => b.getAttribute('aria-selected') === 'true')?.textContent);
+  const settle = () => tab.evaluate(() => new Promise((r) => setTimeout(r, 100)));
+
+  await tab.evaluate(() => globalThis.__app.goTab('gold'));
+  await settle();
+  check('the tab is in the address bar', /#\/gold\/\d{4}-\d{2}$/.test(tab.url()), true);
+
+  await tab.evaluate(() => [...document.querySelectorAll('.period-nav button')]
+    .find((b) => b.getAttribute('aria-label') === 'Previous month').click());
+  await settle();
+  const stepped = tab.url();
+  check('and so is the month', /#\/gold\/\d{4}-\d{2}$/.test(stepped), true);
+
+  await tab.reload({ waitUntil: 'load' });
+  await tab.waitForSelector('.topbar');
+  check('a reload lands on the same tab', await selectedTab(), 'Gold');
+  check('in the same month', tab.url(), stepped);
+
+  await tab.goBack({ waitUntil: 'load' });
+  await settle();
+  check('back steps to the month before it', tab.url() !== stepped, true);
+  await tab.goForward({ waitUntil: 'load' });
+  await settle();
+  check('and forward returns', tab.url(), stepped);
 
   // Start from a clean database, whatever a previous run left behind.
   await tab.evaluate(() => globalThis.__app.clearAll());
@@ -113,7 +148,10 @@ try {
 
   /* ---------------- persistence across a reload ---------------- */
   console.log('\npersistence (SQLite -> IndexedDB -> reload):');
+  await tab.evaluate(() => { globalThis.__probe = 'survived'; });
   await open();
+  check('open() really reloaded the page, hash routing notwithstanding',
+    await tab.evaluate(() => globalThis.__probe), undefined);
   const after = await tab.evaluate(() => globalThis.__app.state().income[0]);
   check('the entry is still there after a reload', !!after, true);
   check('and its text is unchanged', after?.source, 'Ünïcode Ltd 💷');

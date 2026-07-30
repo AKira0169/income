@@ -1,15 +1,20 @@
-/* ui/view.ts — what is on screen, and the one way to ask for a redraw.
+/* ui/view.ts — what the legacy screens think is on screen, and how they ask
+   for a redraw.
 
-   This module imports nothing from the tab modules, and they all import from
-   it. That is deliberate: the tabs need render(), and the shell needs the tabs,
-   so anything holding both would close a cycle. The shell registers the real
-   renderer here at start-up instead. */
+   Everything here is on its way out. `view.tab` and `view.period` are now a
+   mirror of the route signals, written by App.tsx before the tabs are built;
+   `open` and `history` die with the tab that uses them, replaced by component
+   state. What is left is `render()`, which no longer holds a registered
+   callback — it bumps a signal the bridge reads, so a legacy handler asking for
+   a redraw goes through exactly the same path as a data change. */
 
+import { signal } from '@preact/signals';
 import { el } from '../dom.ts';
-import { currentPeriod } from '../store.ts';
+import { currentPeriod } from '../domain/period.ts';
 import type { Period } from '../domain/types.ts';
+import type { TabId } from '../state/route.ts';
 
-export type TabId = 'dashboard' | 'income' | 'bills' | 'purchases' | 'savings' | 'gold' | 'settings';
+export type { TabId };
 
 export interface ViewState {
   tab: TabId;
@@ -18,25 +23,21 @@ export interface ViewState {
   open: Record<string, boolean>;
   /** Which lists are showing all time rather than the month on screen. */
   history: Record<string, boolean>;
-  booting: boolean;
-  bootError: string | null;
 }
 
 export const view: ViewState = {
   tab: 'dashboard',
   period: currentPeriod(),
   open: {},
-  history: {},
-  booting: true,
-  bootError: null
+  history: {}
 };
 
-let renderer: (() => void) | null = null;
+/* Bumped by render(). The bridge reads it, so a legacy screen that changed
+   something outside the state — unfolding a panel, switching to all-time —
+   still redraws. */
+export const legacyTick = signal(0);
 
-/** The shell calls this once with the real draw function. */
-export function onRender(fn: () => void): void { renderer = fn; }
-
-export function render(): void { renderer?.(); }
+export function render(): void { legacyTick.value++; }
 
 export const isOpen = (key: string): boolean => !!view.open[key];
 

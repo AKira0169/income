@@ -1,29 +1,32 @@
-/* store.ts — the mutable binding the screens still read, over a pure domain.
+/* store.ts — the old shape of the store, over the signal and the pure domain.
 
-   Everything that used to live here now lives in domain/, where each function
-   takes the state it works on and returns the next one. This file is what is
-   left: one mutable `state`, the persistence seam, and a thin wrapper per
-   function that supplies `state` and puts the result back.
+   Nothing decides anything here. The rules live in domain/, the state lives in
+   the signal in state/app.ts, and the writes live in state/actions.ts. This
+   file is the adapter the legacy .ts screens still speak to: a plain `state`
+   binding they can read, and one old-arity wrapper per function.
 
    It is a shim, not a barrel. A barrel would preserve the names but not the
    arity, and the legacy UI depends on both — `purchasesIn(period)` with the old
-   signature, and `state.accounts` read as a live binding. Keeping it here is
-   what lets the domain be split and the tabs be ported one at a time with both
-   test suites green at every commit. It is deleted with the last legacy tab. */
+   signature, and `state.accounts` read as a live binding. It is what lets the
+   tabs port one at a time with both suites green at every commit, and it goes
+   with the last legacy tab.
 
-import * as Backup from './domain/backup.ts';
+   Anything written in JSX must NOT use these. They read a plain `let`, so a
+   component calling one subscribes to nothing and silently stops updating.
+   Components read `app.value` and call the domain function themselves. */
+
 import * as Gold from './domain/gold.ts';
 import * as Period from './domain/period.ts';
 import * as Records from './domain/records.ts';
-import * as Recurring from './domain/recurring.ts';
 import * as Selectors from './domain/selectors.ts';
 import { formatMoney as formatMoneyPure } from './domain/money.ts';
 import type { FormatMoneyOptions } from './domain/money.ts';
+import { app } from './state/app.ts';
 import type {
   AccountFlows, AppState, Bill, Cents, CollectionKey, Collections, GoldEntry,
   GoldHolding, GoldPrice, GoldSummary, Id, IncomeEntry, MonthSummary,
-  Period as PeriodId, PersistenceAdapter, Purchase, RecordOf, SavingsMovement,
-  SavingsTx, Settings, UpcomingBill
+  Period as PeriodId, Purchase, RecordOf, SavingsMovement, SavingsTx, Settings,
+  UpcomingBill
 } from './domain/types.ts';
 
 /* ------------------------------------------------- re-exported vocabulary */
@@ -55,123 +58,21 @@ export { looksLikeBackup } from './domain/backup.ts';
 
 export type { Collections };
 
-/* --------------------------------------------------------- mutable state */
+/* ------------------------------------------------------ the state binding */
 
-/* Exported as a live binding: importers see reassignments made by hydrate(),
-   importJSON() and clearAll() without going through a getter. */
-export let state: AppState = Records.blankState();
-export let storageAvailable = true;
+/* A plain mirror of the signal, exported as a live binding so the legacy
+   screens keep reading `state.accounts` unchanged. One assignment site, driven
+   by the signal itself, so the two cannot drift apart: subscribe() runs the
+   callback once immediately and then on every write. */
+export let state: AppState = app.peek();
+app.subscribe((next) => { state = next; });
 
-let persistence: PersistenceAdapter = { save: () => false };
+export { attachPersistence, hydrate, save, scheduleSave } from './state/app.ts';
 
-export function attachPersistence(adapter: PersistenceAdapter): void { persistence = adapter; }
-
-/** Adopt a state object read out of the database at boot. */
-export function hydrate(loaded: unknown, available?: boolean): AppState {
-  state = Records.migrate(loaded);
-  storageAvailable = available !== false;
-  return state;
-}
-
-export function save(): void {
-  pendingSave = false;
-  try {
-    const result = persistence.save(state);
-    if (typeof result === 'object' && typeof result.then === 'function') {
-      result.then((ok) => { storageAvailable = ok !== false; })
-        .catch(() => { storageAvailable = false; });
-    } else {
-      storageAvailable = result !== false;
-    }
-  } catch {
-    storageAvailable = false;
-  }
-}
-
-/* Every save rewrites the whole database, so a run of writes in one turn — save
-   a recurring bill, back-link its past entries, then catch up the months since
-   — should cost one write, not three. A microtask always runs before the
-   browser can paint or the tab can close, so nothing is at risk in the gap. */
-let pendingSave = false;
-
-export function scheduleSave(): void {
-  if (pendingSave) return;
-  pendingSave = true;
-  queueMicrotask(() => { if (pendingSave) save(); });
-}
-
-/** Adopt a new state and write it through. The one place `state` is replaced. */
-function commit(next: AppState): void {
-  state = next;
-  scheduleSave();
-}
-
-/* ------------------------------------------------------- writes (old arity) */
-
-export function upsert<K extends CollectionKey>(
-  collection: K, record: Records.Draft<K>
-): RecordOf<K> {
-  const result = Records.upsert(state, collection, record);
-  commit(result.state);
-  return result.record;
-}
-
-export function remove(collection: CollectionKey, id: Id): void {
-  commit(Records.remove(state, collection, id));
-}
-
-export function updateSettings(patch: Partial<Settings>): void {
-  commit(Records.updateSettings(state, patch));
-}
-
-export function replaceState(next: unknown): void { commit(Records.migrate(next)); }
-
-export function clearAll(): void { commit(Records.blankState()); }
-
-export function importJSON(text: string): Record<CollectionKey, number> {
-  const result = Backup.importJSON(text);
-  commit(result.state);
-  return result.counts;
-}
-
-export function exportJSON(): string { return Backup.exportJSON(state); }
-
-/* ------------------------------------------------------------- generation */
-
-export function generateBills(period: PeriodId): number {
-  const result = Recurring.generateBills(state, period);
-  if (result.created) commit(result.state);
-  return result.created;
-}
-
-export function generateIncome(period: PeriodId): number {
-  const result = Recurring.generateIncome(state, period);
-  if (result.created) commit(result.state);
-  return result.created;
-}
-
-export function catchUp(): { income: number; bills: number; total: number } {
-  const result = Recurring.catchUp(state);
-  // The generatedThrough marks move even in a month where nothing was due, so a
-  // sweep that added no rows can still need persisting.
-  if (result.state !== state) commit(result.state);
-  return result.result;
-}
-
-export function linkGeneratedTo(
-  collection: 'incomeTemplates' | 'billTemplates',
-  template: { id?: Id; accountId?: Id | '' } | null | undefined
-): number {
-  const result = Recurring.linkGeneratedTo(state, collection, template);
-  if (result.linked) commit(result.state);
-  return result.linked;
-}
-
-export function recordGoldPrice(reading: Gold.GoldPriceReading): GoldPrice {
-  const result = Gold.recordGoldPrice(state, reading);
-  commit(result.state);
-  return result.record;
-}
+export {
+  catchUp, clearAll, exportJSON, generateBills, generateIncome, importJSON,
+  linkGeneratedTo, recordGoldPrice, remove, replaceState, updateSettings, upsert
+} from './state/actions.ts';
 
 /* --------------------------------------------------- reads (old arity) */
 

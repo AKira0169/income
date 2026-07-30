@@ -46,7 +46,7 @@ const wasmB64 = () => (wasmB64Cache ??= readFileSync(vendor('sql-wasm.wasm')).to
     @returns {import('esbuild').BuildOptions & { write: false }} */
 export function bundleOptions() {
   return {
-    entryPoints: [join(here, 'src', 'main.ts')],
+    entryPoints: [join(here, 'src', 'main.tsx')],
     bundle: true,
     format: 'iife',
     // esbuild does not read tsconfig's `target`; the app is Chrome/Edge only.

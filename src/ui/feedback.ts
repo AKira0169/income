@@ -1,9 +1,10 @@
 /* ui/feedback.ts — telling the user what just happened, and handing them files. */
 
 import { el } from '../dom.ts';
-import { periodLabel, periodOf } from '../store.ts';
+import { periodOf } from '../domain/period.ts';
+import { periodLabel } from '../store.ts';
+import { goPeriod, period as routePeriod } from '../state/route.ts';
 import type { IsoDate } from '../domain/types.ts';
-import { view } from './view.ts';
 
 const TOAST_MS = 3000;
 
@@ -31,8 +32,9 @@ export function confirmDelete(what: string): boolean {
    it was saved, which reads as "it was not recorded". Follow it. */
 export function followDate(dateISO: IsoDate | '' | null | undefined, message: string): void {
   const period = periodOf(dateISO);
-  if (period && period !== view.period) {
-    view.period = period;
+  if (period && period !== routePeriod.peek()) {
+    // Through the route, so the address bar and the topbar move with it.
+    goPeriod(period);
     toast(`${message} · showing ${periodLabel(period)}`);
     return;
   }
