@@ -1,0 +1,12 @@
+{
+  "name": "income-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline single-file tracker for income, bills, utilities, purchases and savings, with Excel export",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/roundtrip.mjs && node test/export.mjs",
+    "test:full": "npm install --no-save xlsx@0.18.5 && npm test"
+  }
+}
