@@ -15,19 +15,24 @@ import { Topbar } from './Topbar.tsx';
 import { view } from './view.ts';
 import type { BootOutcome } from '../state/app.ts';
 
+import { Purchases } from './tabs/Purchases.tsx';
 import { renderAccounts } from './tabs/accounts.ts';
 import { renderBills } from './tabs/bills.ts';
 import { renderDashboard } from './tabs/dashboard.ts';
 import { renderGold } from './tabs/gold.ts';
 import { renderIncome } from './tabs/income.ts';
-import { renderPurchases } from './tabs/purchases.ts';
 import { renderSettings } from './tabs/settings.ts';
 
-const LEGACY: Readonly<Record<TabId, () => HTMLElement>> = {
+/** Tabs that are components. Anything not here is still hand-built and goes
+    through <LegacyTab/>; this list is the whole record of how far the port is. */
+const PORTED: Partial<Record<TabId, () => preact.JSX.Element>> = {
+  purchases: Purchases
+};
+
+const LEGACY: Partial<Record<TabId, () => HTMLElement>> = {
   dashboard: renderDashboard,
   income: renderIncome,
   bills: renderBills,
-  purchases: renderPurchases,
   savings: renderAccounts,
   gold: renderGold,
   settings: renderSettings
@@ -97,12 +102,17 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
   // Read so the frame redraws with the data, not only with the route.
   app.value;
 
+  const Ported = PORTED[tabId];
+  const legacy = LEGACY[tabId];
+
   return (
     <>
       <Topbar />
       <main>
         <StorageNotice />
-        <LegacyTab key={tabId} render={LEGACY[tabId]} />
+        {Ported
+          ? <Ported key={tabId} />
+          : legacy ? <LegacyTab key={tabId} render={legacy} /> : null}
       </main>
       <Toast />
     </>

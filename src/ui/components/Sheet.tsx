@@ -32,12 +32,20 @@ export interface AddSectionProps {
   onInvalid?: () => void;
   /** Shown in the head between the title and the button. */
   summary?: preact.ComponentChildren;
+  /** Unfolded regardless — a screen with nothing on it yet has nothing to
+      de-clutter, and the form is the only thing worth showing. */
+  forceOpen?: boolean;
 }
 
 export function AddSection({
-  title, addLabel, fields, state, onSubmit, onInvalid, summary
+  title, addLabel, fields, state, onSubmit, onInvalid, summary, forceOpen
 }: AddSectionProps) {
-  const [open, setOpen] = useState(false);
+  const [asked, setAsked] = useState(false);
+  /* Bumped after each save. It is the form's key, so the fields are remounted
+     from their defaults — the panel stays open and empty, ready for the next
+     entry, which is what the old rebuild-everything draw did by accident. */
+  const [generation, setGeneration] = useState(0);
+  const open = asked || !!forceOpen;
 
   return (
     <Sheet>
@@ -48,20 +56,18 @@ export function AddSection({
         <button
           class={open ? 'quiet' : 'primary'}
           aria-expanded={open ? 'true' : 'false'}
-          onClick={() => setOpen(!open)}
+          onClick={() => setAsked(!asked)}
         >{open ? 'Cancel' : addLabel}</button>
       </SheetHead>
       {open ? (
         <div class="disclosure-body">
-          {/* Keyed on `open` so re-opening the panel starts from a clean form
-              rather than from whatever was half-typed when it was closed. */}
           <Form
-            key="add" fields={fields} state={state} onInvalid={onInvalid}
-            onSubmit={(data) => { onSubmit(data); setOpen(false); }}
+            key={generation} fields={fields} state={state} onInvalid={onInvalid}
+            onSubmit={(data) => { onSubmit(data); setGeneration(generation + 1); }}
           >
             <div class="btn-row" style="margin-top:16px">
               <button class="primary" type="submit">{addLabel}</button>
-              <button type="button" onClick={() => setOpen(false)}>Close</button>
+              <button type="button" onClick={() => setAsked(false)}>Close</button>
             </div>
           </Form>
         </div>

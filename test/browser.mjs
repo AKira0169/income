@@ -162,6 +162,7 @@ try {
   /* ---------------- the date field's own keyboard behaviour ---------------- */
   console.log('\ndate field:');
   await tab.evaluate(() => globalThis.__app.goTab('purchases'));
+  await tab.waitForSelector('form input[name="item"]');
   await tab.evaluate(() => {
     const btn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Add purchase');
     if (btn) btn.click();
@@ -180,6 +181,32 @@ try {
     await new Promise((r) => setTimeout(r, 100));
     return !!document.querySelector('.dp-pop');
   }), false);
+
+  /* ---------------- a half-typed form survives a redraw ---------------- */
+
+  /* The trap the whole form design is arranged around. If a field renders
+     `value={initial}` instead of `defaultValue`, Preact writes that initial
+     value back on every re-render and eats what was typed. The rest of this
+     suite cannot see it, because it fills a form and submits inside one tick.
+     Here the write comes from somewhere else entirely, which is what happens in
+     real use — the gold price arriving after boot does exactly this. */
+  console.log('\na half-typed form survives a write from elsewhere:');
+  const optionCount = () => tab.evaluate(() =>
+    document.querySelectorAll('form select[name="accountId"] option').length);
+
+  const optionsBefore = await optionCount();
+  await tab.evaluate(() => { document.querySelector('form input[name="item"]').value = 'half typed'; });
+  await tab.evaluate(() => globalThis.__app.upsert('accounts', {
+    name: 'Distraction', type: 'Current Account', opening: 0, target: 0, notes: ''
+  }));
+  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+
+  // Without this the check above could pass by the form never redrawing at all.
+  check('the open form really did redraw', (await optionCount()) > optionsBefore, true);
+  check('and the half-typed text is still there',
+    await tab.evaluate(() => document.querySelector('form input[name="item"]').value), 'half typed');
+  check('as is the date the user picked',
+    await tab.evaluate(() => document.querySelector('.dp-text').value !== ''), true);
 
   /* ---------------- the browser-only export path ---------------- */
   console.log('\nexport from the browser (Blob + TextEncoder, never hit in Node):');
