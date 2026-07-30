@@ -242,6 +242,54 @@ try {
   check('focus stayed in the field', inlineEdit.stillFocused, true);
   check('and the page did not jump', inlineEdit.scroll, 0);
 
+  /* ---------------- the date field inside a modal dialog ---------------- */
+
+  /* Every editor's date field lives inside a <dialog> opened with showModal(),
+     which is the awkward case: the dialog paints in the top layer and
+     .dialog-body is its own scroll box. The old picker appended its calendar to
+     the dialog by hand for exactly that reason; this one relies on position:
+     fixed inside the dialog giving both. The hit test is the check that matters
+     — a calendar painting *under* the backdrop is present, sized and unusable. */
+  console.log('\nthe calendar inside an editor dialog:');
+  await tab.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Edit').click());
+  await settle();
+
+  const inDialog = await tab.evaluate(async () => {
+    const input = document.querySelector('dialog[open] .dp-text');
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    const pop = document.querySelector('.dp-pop');
+    if (!pop) return { open: false };
+    const b = pop.getBoundingClientRect();
+    return {
+      open: true,
+      onScreen: b.width > 0 && b.height > 0 && b.top >= 0 && b.bottom <= window.innerHeight,
+      // Painted at its own centre, i.e. above the dialog's backdrop.
+      onTop: pop.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2))
+    };
+  });
+  check('it opens', inDialog.open, true);
+  check('it is placed on screen', inDialog.onScreen, true);
+  check('and it is not behind the backdrop', inDialog.onTop, true);
+
+  /* Typing a date and then clicking away while the calendar is open must still
+     commit it, or the box goes on showing a date the form would not save. */
+  const committed = await tab.evaluate(async () => {
+    const form = document.querySelector('dialog[open] form');
+    const input = form.querySelector('.dp-text');
+    input.value = '23/07/2026';
+    const elsewhere = form.querySelector('input[name="amount"]');
+    elsewhere.focus();
+    input.dispatchEvent(new Event('blur'));
+    await new Promise((r) => setTimeout(r, 150));
+    return { shown: input.value, stored: form.elements.namedItem('dueDate').value };
+  });
+  check('typing then leaving the field commits what was typed', committed.stored, '2026-07-23');
+  check('and the box agrees with it', committed.shown, '23/07/2026');
+  await tab.evaluate(() => document.querySelector('dialog[open]')?.close());
+  await settle();
+
   /* ---------------- every tab renders against real data ---------------- */
 
   /* The checks above enter data through Income and Purchases and edit a bill.

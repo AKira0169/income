@@ -267,6 +267,7 @@ export function DatePicker({ name, id, label, required, initial, locale, onChang
   const first = toParts(initial) ? (initial as IsoDate) : '';
   const [value, setValue] = useState<IsoDate | ''>(first);
   const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLInputElement>(null);
   const hidden = useRef<HTMLInputElement>(null);
 
@@ -293,15 +294,20 @@ export function DatePicker({ name, id, label, required, initial, locale, onChang
   };
 
   return (
-    <div class="dp">
+    <div class="dp" ref={wrap}>
       <input
         ref={text} id={id} type="text" class="dp-text" autoComplete="off" spellcheck={false}
         inputMode="numeric" placeholder="dd/mm/yyyy" aria-label={label ?? 'Date'}
         title="Type 5/8, 5-8-26 or 2026-08-05 — or pick from the calendar"
         defaultValue={display(first)}
-        onBlur={() => {
-          // Leaving for the calendar button is not leaving the field.
-          if (open) return;
+        onBlur={(e: FocusEvent) => {
+          /* Moving to the calendar button, or into the calendar itself, is not
+             leaving the field — both are inside .dp. Anywhere else is, and what
+             was typed has to be committed or the box would go on showing a date
+             the form would not save. relatedTarget is the element taking focus;
+             a synthesised blur event carries none, hence the fallback. */
+          const next = (e.relatedTarget as Node | null) ?? document.activeElement;
+          if (next && wrap.current?.contains(next)) return;
           commitTyped();
         }}
         onKeyDown={(e: KeyboardEvent) => {

@@ -38,7 +38,6 @@ let busy = false;
 let lastError: string | null = null;
 
 export const isBusy = (): boolean => busy;
-export const getLastError = (): string | null => lastError;
 
 async function fetchJSON(url: string): Promise<unknown> {
   if (typeof globalThis.fetch !== 'function') {

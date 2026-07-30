@@ -7,7 +7,6 @@
 
 import type { CollectionKey, Frequency } from './types.ts';
 
-export const STORAGE_KEY = 'income-tracker-v1';
 export const SCHEMA_VERSION = 1;
 
 export const INCOME_CATEGORIES: readonly string[] = [
