@@ -242,7 +242,36 @@ try {
   check('focus stayed in the field', inlineEdit.stillFocused, true);
   check('and the page did not jump', inlineEdit.scroll, 0);
 
+  /* ---------------- every tab renders against real data ---------------- */
+
+  /* The checks above enter data through Income and Purchases and edit a bill.
+     Dashboard, Accounts, Gold and Settings are otherwise never rendered at all
+     here, and a component that throws on its first render takes the whole page
+     with it — so each one is opened once with records on screen. */
+  console.log('\nevery tab draws with data in it:');
+  await tab.evaluate(() => {
+    const a = globalThis.__app;
+    a.upsert('savingsTx', { id: 'sav_t', date: '2026-07-07', accountId: 'acc_t', fromAccountId: '', direction: 'in', amount: 50000, notes: '' });
+    a.upsert('goldPrices', { id: 'gpr_2026-07-29', date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, egpPerGram24: 100000, source: 'test', fetchedAt: '' });
+    a.upsert('goldPrices', { id: 'gpr_2026-07-30', date: '2026-07-30', usdPerOz: 3200, egpPerUsd: 10, egpPerGram24: 102890, source: 'test', fetchedAt: '' });
+    a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
+  });
+
+  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'gold', 'settings']) {
+    await tab.evaluate((t) => globalThis.__app.goTab(t), id);
+    await settle();
+    check(`${id} renders something`, await tab.evaluate(() =>
+      document.querySelectorAll('main .sheet, main .figure').length > 0), true);
+  }
+
+  // The gold sparkline is the one piece of SVG the app draws by hand.
+  await tab.evaluate(() => globalThis.__app.goTab('gold'));
+  await settle();
+  check('the price sparkline is drawn',
+    await tab.evaluate(() => !!document.querySelector('svg.spark')), true);
+
   await tab.evaluate(() => globalThis.__app.goTab('purchases'));
+  await settle();
 
   /* ---------------- the browser-only export path ---------------- */
   console.log('\nexport from the browser (Blob + TextEncoder, never hit in Node):');
