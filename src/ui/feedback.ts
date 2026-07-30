@@ -2,7 +2,7 @@
 
 import { el } from '../dom.ts';
 import { periodLabel, periodOf } from '../store.ts';
-import type { IsoDate } from '../types.ts';
+import type { IsoDate } from '../domain/types.ts';
 import { view } from './view.ts';
 
 const TOAST_MS = 3000;

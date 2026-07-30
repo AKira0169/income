@@ -6,7 +6,7 @@ import {
   accountBalance, billsIn, goldSummary, groupByCategory, incomeIn, periodLabel,
   plural, purchasesIn, state, summary, totalSavings, trend, upcomingBills
 } from '../../store.ts';
-import type { Bill, Cents, Category, Period, Purchase } from '../../types.ts';
+import type { Bill, Cents, Category, Period, Purchase } from '../../domain/types.ts';
 import { money } from '../format.ts';
 import { table } from '../tables.ts';
 import { view } from '../view.ts';

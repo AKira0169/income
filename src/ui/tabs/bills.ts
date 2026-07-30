@@ -10,7 +10,7 @@ import {
   monthlyEquivalent, normalizeBill, parseMoney, periodLabel, plural, remove,
   state, sum, toMajor, todayISO, upsert
 } from '../../store.ts';
-import type { Bill, BillTemplate } from '../../types.ts';
+import type { Bill, BillTemplate } from '../../domain/types.ts';
 import { confirmDelete, toast } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 import { accountName, money } from '../format.ts';

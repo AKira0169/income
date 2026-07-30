@@ -8,7 +8,7 @@ import {
   accountBalance, accountFlows, goldSummary, isSavingsAccount, periodLabel, plural,
   remove, savingsBalance, savingsTxIn, sortByDateDesc, state, totalSavings, upsert
 } from '../../store.ts';
-import type { Account, SavingsTx } from '../../types.ts';
+import type { Account, SavingsTx } from '../../domain/types.ts';
 import { confirmDelete, followDate, toast } from '../feedback.ts';
 import { FIELDS, savingsFields } from '../fields.ts';
 import { accountName, money } from '../format.ts';

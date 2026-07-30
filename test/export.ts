@@ -6,8 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 
 import * as Store from '../src/store.ts';
 import * as DatePicker from '../src/datepicker.ts';
-import { build, filename } from '../src/export.ts';
-import type { Bill, Frequency, Period } from '../src/types.ts';
+import { build, filename } from '../src/workbook/build.ts';
+import type { Bill, Frequency, Period } from '../src/domain/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.XLSX_OUT || join(here, '..', '.tmp');

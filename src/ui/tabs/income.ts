@@ -5,7 +5,7 @@ import {
   generateIncome, incomeIn, linkGeneratedTo, monthlyEquivalent, periodLabel,
   plural, remove, sortByDateDesc, state, sum, upsert
 } from '../../store.ts';
-import type { IncomeEntry, IncomeTemplate } from '../../types.ts';
+import type { IncomeEntry, IncomeTemplate } from '../../domain/types.ts';
 import { confirmDelete, followDate, toast } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 import { accountName, money } from '../format.ts';

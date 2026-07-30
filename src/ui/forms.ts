@@ -10,7 +10,7 @@ import {
   plural, state, sum, toMajor, upsert
 } from '../store.ts';
 import type { MonthlyEquivalentInput } from '../store.ts';
-import type { CollectionKey, Id } from '../types.ts';
+import type { CollectionKey, Id } from '../domain/types.ts';
 import { toast } from './feedback.ts';
 import { money } from './format.ts';
 import { table } from './tables.ts';

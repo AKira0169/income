@@ -7,7 +7,7 @@
 
 import { el } from '../dom.ts';
 import { currentPeriod } from '../store.ts';
-import type { Period } from '../types.ts';
+import type { Period } from '../domain/types.ts';
 
 export type TabId = 'dashboard' | 'income' | 'bills' | 'purchases' | 'savings' | 'gold' | 'settings';
 

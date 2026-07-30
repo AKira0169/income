@@ -1,7 +1,7 @@
 /* ui/tabs/settings.ts — currency, goals, backup and the danger zone. */
 
 import { el } from '../../dom.ts';
-import { getBackend, exportBytes } from '../../sqlite.ts';
+import { getBackend, exportBytes } from '../../data/sqlite.ts';
 import {
   catchUp, clearAll, exportJSON, importJSON, plural, save, state, todayISO
 } from '../../store.ts';

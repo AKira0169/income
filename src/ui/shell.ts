@@ -7,14 +7,14 @@
 
 import { append, clear, el } from '../dom.ts';
 import { close as closeDatePicker } from '../datepicker.ts';
-import { isDue, refresh } from '../gold.ts';
-import { init as initSqlite } from '../sqlite.ts';
+import { isDue, refresh } from '../data/gold-price.ts';
+import { init as initSqlite } from '../data/sqlite.ts';
 import {
   activePeriods, attachPersistence, catchUp, currentPeriod, hydrate, periodLabel,
   plural, save as saveStore, shiftPeriod, storageAvailable
 } from '../store.ts';
-import { save as saveSqlite } from '../sqlite.ts';
-import type { Period } from '../types.ts';
+import { save as saveSqlite } from '../data/sqlite.ts';
+import type { Period } from '../domain/types.ts';
 import { openExportDialog } from './export-dialog.ts';
 import { toast } from './feedback.ts';
 import { renderAccounts } from './tabs/accounts.ts';

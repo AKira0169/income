@@ -1,7 +1,9 @@
 /* ui/format.ts — turning stored values into the strings on screen. */
 
-import { byId, formatMoney } from '../store.ts';
-import type { Cents, Id } from '../types.ts';
+import { formatMoney } from '../store.ts';
+import type { Cents } from '../domain/types.ts';
+
+export { accountName } from '../store.ts';
 
 export const money = (cents: Cents): string => formatMoney(cents);
 
@@ -13,8 +15,4 @@ export function percent(rate: number): string {
     ? value.toFixed(1)
     : String(Math.round(value));
   return `${body}%`;
-}
-
-export function accountName(id: Id | '' | null | undefined): string {
-  return byId('accounts', id)?.name ?? '';
 }

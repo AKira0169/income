@@ -1,12 +1,12 @@
 /* ui/tabs/gold.ts — grams held by karat, valued against the live price. */
 
 import { el } from '../../dom.ts';
-import { isBusy, refresh } from '../../gold.ts';
+import { isBusy, refresh } from '../../data/gold-price.ts';
 import {
   GOLD_KARATS, goldHoldings, goldIn, goldPricePerGram, goldSummary, latestGoldPrice,
   parseMoney, periodLabel, plural, remove, save, sortByDateDesc, state, toMajor, upsert
 } from '../../store.ts';
-import type { GoldEntry } from '../../types.ts';
+import type { GoldEntry } from '../../domain/types.ts';
 import { confirmDelete, followDate, toast } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 import { accountName, money, percent } from '../format.ts';

@@ -1,20 +1,20 @@
-/* export.ts — turns the store into a multi-sheet workbook.
+/* workbook/build.ts — turns the store into a multi-sheet workbook.
 
    Every total is a live Excel formula carrying a cached value, so the numbers
    still add up if you edit rows in Excel, and still read correctly in a tool
    that never evaluates formulas. */
 
 import {
-  accountBalance, accountFlows, activePeriods, billIsOverdue, billsIn, byId,
+  accountBalance, accountFlows, accountName, activePeriods, billIsOverdue, billsIn,
   goldHoldings, goldIn, goldPricePerGram, goldSummary, groupByCategory, incomeIn,
   METERED, monthlyEquivalent, periodLabel, plural, purchasesIn, savingsBalance,
   savingsMovement, savingsTxIn, state, sum, summary, todayISO, totalSavings
-} from './store.ts';
+} from '../store.ts';
 import { write } from './xlsx.ts';
 import type { CellInput, CellObject, Sheet, StyleName } from './xlsx.ts';
 import type {
-  Bill, Cents, GoldEntry, Id, IncomeEntry, IsoDate, Period, Purchase, SavingsTx
-} from './types.ts';
+  Bill, Cents, GoldEntry, IncomeEntry, IsoDate, Period, Purchase, SavingsTx
+} from '../domain/types.ts';
 
 /* ------------------------------------------------------------ cell makers */
 
@@ -31,10 +31,6 @@ const headerRow = (labels: readonly string[]): CellInput[] => labels.map(head);
 function optionalNumber(value: unknown): CellObject | null {
   if (value === null || value === undefined || value === '') return null;
   return { t: 'number', v: Number(value) };
-}
-
-function accountName(id: Id | '' | null | undefined): string {
-  return byId('accounts', id)?.name ?? '';
 }
 
 /** SUM over a column, or a literal 0 when there is nothing to sum. */

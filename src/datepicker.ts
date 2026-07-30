@@ -9,60 +9,29 @@
    you would rather look than type.
 
    The value the rest of the app sees is always an ISO YYYY-MM-DD string, or ''
-   for empty, held on a hidden input so that form reading stays unchanged. */
+   for empty, held on a hidden input so that form reading stays unchanged.
+
+   What text means which date is not decided here — that is domain/date-parse.ts,
+   which is DOM-free and tested in Node. This file is the widget around it. */
 
 import { append as appendChild, clear, el, svg, svgPath } from './dom.ts';
+import {
+  daysInMonth, display, iso, parse, shiftDays, shiftMonths, toParts
+} from './domain/date-parse.ts';
+import { todayISO } from './domain/period.ts';
 import { state } from './store.ts';
-import type { IsoDate } from './types.ts';
+import type { IsoDate } from './domain/types.ts';
+
+/* Re-exported so the widget stays the one import a screen needs, and so
+   test/export.ts can keep checking the parser through this module. */
+export { display, parse } from './domain/date-parse.ts';
 
 /* Saturday. The working week here runs Sunday to Thursday, so a calendar that
    starts on Monday puts the weekend in the middle of the row. */
 const WEEK_START = 6;
 
-const MS_DAY = 86400000;
-
 /** Closes whichever calendar is on screen; only ever one at a time. */
 let openCalendarClose: (() => void) | null = null;
-
-/* ------------------------------------------------------------ date maths */
-
-interface DateParts { y: number; m: number; d: number }
-
-const pad2 = (n: number): string => String(n).padStart(2, '0');
-const iso = (y: number, m: number, d: number): IsoDate => `${y}-${pad2(m + 1)}-${pad2(d)}`;
-const todayISO = (): IsoDate => {
-  const d = new Date();
-  return iso(d.getFullYear(), d.getMonth(), d.getDate());
-};
-const daysInMonth = (y: number, m: number): number => new Date(y, m + 1, 0).getDate();
-
-function toParts(value: string | null | undefined): DateParts | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]) - 1;
-  const d = Number(m[3]);
-  if (mo < 0 || mo > 11 || d < 1 || d > daysInMonth(y, mo)) return null;
-  return { y, m: mo, d };
-}
-
-function shiftDays(value: IsoDate, delta: number): IsoDate {
-  const p = toParts(value);
-  if (!p) return value;
-  const d = new Date(new Date(p.y, p.m, p.d).getTime() + (delta * MS_DAY));
-  return iso(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-/* Month arithmetic clamps rather than rolling over, so 31 January minus a month
-   is 28 February and not the 3rd of March. */
-function shiftMonths(value: IsoDate, delta: number): IsoDate {
-  const p = toParts(value);
-  if (!p) return value;
-  let m = p.m + delta;
-  const y = p.y + Math.floor(m / 12);
-  m = ((m % 12) + 12) % 12;
-  return iso(y, m, Math.min(p.d, daysInMonth(y, m)));
-}
 
 const locale = (): string => state.settings.locale || 'en-GB';
 
@@ -87,59 +56,6 @@ function weekdayLabels(): string[] {
     out.push(label.slice(0, 2));
   }
   return out;
-}
-
-/* ---------------------------------------------------------- text <-> iso */
-
-export function display(value: string | null | undefined): string {
-  const p = toParts(value);
-  return p ? `${pad2(p.d)}/${pad2(p.m + 1)}/${p.y}` : '';
-}
-
-function fourDigit(year: number): number {
-  if (year >= 100) return year;
-  // A two-digit year is this century unless that would be far in the future.
-  const century = Math.floor(new Date().getFullYear() / 100) * 100;
-  const full = century + year;
-  return full - new Date().getFullYear() > 20 ? full - 100 : full;
-}
-
-/** Builds an ISO date, or null if that day does not exist. */
-function make(y: number, m: number, d: number): IsoDate | null {
-  if (m < 1 || m > 12) return null;
-  if (d < 1 || d > daysInMonth(y, m - 1)) return null;
-  return iso(y, m - 1, d);
-}
-
-/** Reads whatever was typed. `context` is the month on screen, so a bare day
-    number means that month — the common case when correcting one entry.
-    Returns '' for empty and null for unreadable, which the caller must tell
-    apart: one clears the field, the other must not. */
-export function parse(text: string | null | undefined, context?: string): IsoDate | '' | null {
-  const raw = String(text ?? '').trim();
-  if (!raw) return '';
-
-  const base = toParts(context) ?? toParts(todayISO())!;
-
-  let m = /^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/.exec(raw);
-  if (m) return make(Number(m[1]), Number(m[2]), Number(m[3]));
-
-  m = /^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})$/.exec(raw);
-  if (m) return make(fourDigit(Number(m[3])), Number(m[2]), Number(m[1]));
-
-  m = /^(\d{1,2})[-/. ](\d{1,2})$/.exec(raw);
-  if (m) return make(base.y, Number(m[2]), Number(m[1]));
-
-  m = /^(\d{2})(\d{2})(\d{4})$/.exec(raw);        // 05082026
-  if (m) return make(Number(m[3]), Number(m[2]), Number(m[1]));
-
-  m = /^(\d{2})(\d{2})(\d{2})$/.exec(raw);        // 050826
-  if (m) return make(fourDigit(Number(m[3])), Number(m[2]), Number(m[1]));
-
-  m = /^(\d{1,2})$/.exec(raw);                    // just a day
-  if (m) return make(base.y, base.m + 1, Number(m[1]));
-
-  return null;                                    // unreadable
 }
 
 export function close(): void { openCalendarClose?.(); }

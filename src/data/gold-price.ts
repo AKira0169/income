@@ -10,8 +10,8 @@
    away because a later fetch failed: the last good snapshot stays on screen with
    the date it was taken, and a price you type in yourself always wins. */
 
-import { latestGoldPrice, recordGoldPrice, state, todayISO } from './store.ts';
-import type { GoldPrice } from './types.ts';
+import { latestGoldPrice, recordGoldPrice, state, todayISO } from '../store.ts';
+import type { GoldPrice } from '../domain/types.ts';
 
 const SPOT_URL = 'https://api.gold-api.com/price/XAU';
 

@@ -4,8 +4,8 @@
    into one <script> in one HTML file, so the app opens straight off the disk
    with nothing to install and nothing to fetch. */
 
-import { build as buildWorkbook, filename as workbookFilename } from './export.ts';
-import { exportBytes, getBackend, query } from './sqlite.ts';
+import { build as buildWorkbook, filename as workbookFilename } from './workbook/build.ts';
+import { exportBytes, getBackend, query } from './data/sqlite.ts';
 import { accountBalance, clearAll, state, upsert } from './store.ts';
 import { init } from './ui/shell.ts';
 import { render, view } from './ui/view.ts';

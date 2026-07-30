@@ -1,8 +1,8 @@
 /* ui/export-dialog.ts — choosing what goes into the workbook. */
 
 import { el } from '../dom.ts';
-import { build, filename } from '../export.ts';
-import type { Scope } from '../export.ts';
+import { build, filename } from '../workbook/build.ts';
+import type { Scope } from '../workbook/build.ts';
 import { periodLabel } from '../store.ts';
 import { download, toast } from './feedback.ts';
 import { view } from './view.ts';

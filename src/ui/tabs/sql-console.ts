@@ -4,7 +4,7 @@
    SQLite file, so the shortest honest answer is to let you ask it directly. */
 
 import { append, clear, el } from '../../dom.ts';
-import { query, TABLES } from '../../sqlite.ts';
+import { query, TABLES } from '../../data/sqlite.ts';
 import { table } from '../tables.ts';
 
 /** Enough to read; anything larger belongs in the exported .db. */

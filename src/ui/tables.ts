@@ -3,7 +3,7 @@
 import { el } from '../dom.ts';
 import type { Child } from '../dom.ts';
 import { periodLabel, periodOf } from '../store.ts';
-import type { Cents } from '../types.ts';
+import type { Cents } from '../domain/types.ts';
 import { accountName, money } from './format.ts';
 import { isAllTime } from './view.ts';
 

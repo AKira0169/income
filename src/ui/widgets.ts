@@ -1,7 +1,7 @@
 /* ui/widgets.ts — small display pieces shared by more than one screen. */
 
 import { el } from '../dom.ts';
-import type { Cents } from '../types.ts';
+import type { Cents } from '../domain/types.ts';
 import { money } from './format.ts';
 
 /** A headline number with its label and a line of context underneath. */

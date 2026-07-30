@@ -2,7 +2,7 @@
 
 import { el } from '../../dom.ts';
 import { periodLabel, plural, purchasesIn, remove, sortByDateDesc, state, sum, upsert } from '../../store.ts';
-import type { Purchase } from '../../types.ts';
+import type { Purchase } from '../../domain/types.ts';
 import { confirmDelete, followDate } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 import { money } from '../format.ts';

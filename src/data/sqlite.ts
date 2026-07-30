@@ -9,7 +9,7 @@
    OPFS is blocked on file:// origins, which is why persistence goes through
    IndexedDB (with localStorage as a fallback) instead of a live SQLite VFS. */
 
-import type { AppState, CollectionKey, RecordOf } from './types.ts';
+import type { AppState, CollectionKey, RecordOf } from '../domain/types.ts';
 
 const DB_NAME = 'income-tracker';
 const STORE_NAME = 'db';
