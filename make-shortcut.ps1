@@ -10,9 +10,11 @@
 
 $ErrorActionPreference = 'Stop'
 
+# income-tracker.html is a build output and is not committed, so a fresh clone
+# has to be built before there is anything to point a shortcut at.
 $app = Join-Path $PSScriptRoot 'income-tracker.html'
 if (-not (Test-Path $app)) {
-    throw "income-tracker.html not found next to this script. Run 'node build.mjs' first."
+    throw "income-tracker.html not found next to this script. Run 'pnpm build' first."
 }
 
 # Chrome and Edge both support --app; either gives a plain window.
