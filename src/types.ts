@@ -1,0 +1,265 @@
+/* types.ts — the domain model.
+
+   Money is an integer number of minor units (cents) everywhere it appears, so
+   totals never drift by a penny. The `Cents` alias marks every field that
+   follows that rule; a plain `number` in this file is a real quantity (grams,
+   a day of the month, a rate) and is not scaled. */
+
+/** Opaque-ish aliases. They document intent at every call site. */
+export type Id = string;
+/** `YYYY-MM-DD`. String order is chronological order, which the code relies on. */
+export type IsoDate = string;
+/** `YYYY-MM`. Also chronologically ordered as a string. */
+export type Period = string;
+/** An integer number of minor units. Never a fractional currency value. */
+export type Cents = number;
+
+export type Frequency = 'Monthly' | 'Bi-monthly' | 'Quarterly' | 'Half-yearly' | 'Yearly' | 'One-off';
+export type BillStatus = 'paid' | 'unpaid';
+export type GoldDirection = 'buy' | 'sell';
+/** `transfer` moves between two accounts; `in`/`out` reach outside them. */
+export type SavingsDirection = 'in' | 'out' | 'transfer';
+
+export type AccountType =
+  | 'Current Account' | 'Card / Wallet' | 'Savings' | 'Emergency Fund'
+  | 'Fixed Deposit' | 'Investment' | 'Pension' | 'Cash' | 'Goal Pot' | 'Other';
+
+/* Categories stay `string`: they are offered as a list but a database written
+   by an older build may hold anything, and a union would reject it on load. */
+export type Category = string;
+
+export interface Settings {
+  currencySymbol: string;
+  currencyCode: string;
+  locale: string;
+  savingsGoalRate: number;
+  autoGenerate: boolean;
+  /** When false the app never touches the network. */
+  goldSync: boolean;
+  /** Percent a local shop adds over the bourse price. */
+  goldPremium: number;
+  /** A price read off a shop board; overrides syncing entirely when > 0. */
+  goldManualPrice: Cents;
+}
+
+/** Fields shared by the two recurring definitions. */
+export interface RecurringBase {
+  id: Id;
+  category: Category;
+  frequency: Frequency;
+  expected: Cents;
+  accountId: Id | '';
+  method: string;
+  active: boolean;
+  /** Period the schedule is phased from, so quarterly/yearly land correctly. */
+  anchor: Period | '';
+  /** Last period the automatic sweep has taken this definition through. */
+  generatedThrough: Period | '';
+  notes: string;
+}
+
+export interface IncomeTemplate extends RecurringBase {
+  source: string;
+  payDay: number;
+}
+
+export interface BillTemplate extends RecurringBase {
+  name: string;
+  provider: string;
+  dueDay: number;
+}
+
+export interface IncomeEntry {
+  id: Id;
+  /** Set when generated from a recurring definition; nulled if that is deleted. */
+  templateId: Id | null;
+  date: IsoDate;
+  source: string;
+  category: Category;
+  amount: Cents;
+  accountId: Id | '';
+  method: string;
+  notes: string;
+}
+
+export interface Bill {
+  id: Id;
+  templateId: Id | null;
+  name: string;
+  category: Category;
+  provider: string;
+  /** Derived from `dueDate`; recomputed on every write. */
+  period: Period;
+  dueDate: IsoDate;
+  amount: Cents;
+  accountId: Id | '';
+  /** Meter reading for the utility categories, in kWh or m³. Not money. */
+  units: number | null;
+  unitRate: number | null;
+  /** Derived from `paidDate`; recomputed on every write. */
+  status: BillStatus;
+  paidDate: IsoDate | '';
+  method: string;
+  notes: string;
+}
+
+export interface Purchase {
+  id: Id;
+  date: IsoDate;
+  item: string;
+  category: Category;
+  amount: Cents;
+  accountId: Id | '';
+  method: string;
+  notes: string;
+}
+
+/** Anywhere money sits — not only the pots you save into. */
+export interface Account {
+  id: Id;
+  name: string;
+  type: AccountType;
+  target: Cents;
+  opening: Cents;
+  notes: string;
+}
+
+export interface SavingsTx {
+  id: Id;
+  date: IsoDate;
+  /** The account money lands in. */
+  accountId: Id | '';
+  /** Only meaningful when `direction` is `transfer`. */
+  fromAccountId: Id | '';
+  direction: SavingsDirection;
+  amount: Cents;
+  notes: string;
+}
+
+export interface GoldEntry {
+  id: Id;
+  date: IsoDate;
+  direction: GoldDirection;
+  karat: number;
+  /** Weight in grams — a real quantity, not scaled. */
+  grams: number;
+  pricePerGram: Cents;
+  amount: Cents;
+  accountId: Id | '';
+  dealer: string;
+  notes: string;
+}
+
+/** One daily snapshot of the world spot price and the pound rate. */
+export interface GoldPrice {
+  id: Id;
+  date: IsoDate;
+  usdPerOz: number;
+  egpPerUsd: number;
+  egpPerGram24: Cents;
+  source: string;
+  fetchedAt: string;
+}
+
+/** The collections that are stored as tables, keyed by table name. */
+export interface Collections {
+  income: IncomeEntry[];
+  incomeTemplates: IncomeTemplate[];
+  billTemplates: BillTemplate[];
+  bills: Bill[];
+  purchases: Purchase[];
+  accounts: Account[];
+  savingsTx: SavingsTx[];
+  gold: GoldEntry[];
+  goldPrices: GoldPrice[];
+}
+
+export type CollectionKey = keyof Collections;
+/** The record type held by a given collection, e.g. `RecordOf<'bills'>` is `Bill`. */
+export type RecordOf<K extends CollectionKey> = Collections[K][number];
+
+export interface AppState extends Collections {
+  version: number;
+  settings: Settings;
+}
+
+/* ------------------------------------------------------------- derived data */
+
+/** Every flow that touches an account, in the order money actually moves. */
+export interface AccountFlows {
+  opening: Cents;
+  income: Cents;
+  purchases: Cents;
+  /** Only bills actually paid; an unpaid bill is a commitment, not a withdrawal. */
+  bills: Cents;
+  savedIn: Cents;
+  savedOut: Cents;
+  /** Net cost of gold: bought less sold. */
+  gold: Cents;
+}
+
+export interface MonthSummary {
+  period: Period;
+  income: Cents;
+  bills: Cents;
+  billsPaid: Cents;
+  billsOutstanding: Cents;
+  billCount: number;
+  overdueCount: number;
+  purchases: Cents;
+  spent: Cents;
+  net: Cents;
+  savedIn: Cents;
+  savedOut: Cents;
+  savedNet: Cents;
+  /** A fraction, not a percent: 0.2 is 20%. */
+  savingsRate: number;
+}
+
+/** Which way a movement pushes money relative to your savings. */
+export interface SavingsMovement {
+  in: Cents;
+  out: Cents;
+}
+
+export interface GoldHolding {
+  karat: number;
+  grams: number;
+  value: Cents;
+}
+
+export interface GoldSummary {
+  value: Cents;
+  invested: Cents;
+  gain: Cents;
+  gainRate: number;
+  grams: number;
+  /** Grams of pure gold, after applying each karat's purity. */
+  pure: number;
+  price: GoldPrice | null;
+  manual: boolean;
+}
+
+export interface CatchUpResult {
+  income: number;
+  bills: number;
+  total: number;
+}
+
+export interface CategoryTotal {
+  category: Category;
+  amount: Cents;
+}
+
+export interface UpcomingBill extends Bill {
+  overdue: boolean;
+}
+
+/* --------------------------------------------------------------- injection */
+
+/** Persistence is injected so the same logic runs against SQLite in the
+    browser and against plain memory in the Node tests. */
+export interface PersistenceAdapter {
+  /** Resolves false when the write did not reach durable storage. */
+  save(state: AppState): Promise<boolean> | boolean;
+}

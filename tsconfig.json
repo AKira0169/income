@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Node runs the test suite by stripping types rather than compiling, and
+       esbuild bundles the app the same way. Both refuse syntax that needs a
+       real emit step, so the compiler rejects it here first rather than at
+       build time: no enums, no namespaces, no parameter properties. */
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+
+    "skipLibCheck": true,
+
+    /* The app half is browser-only. Leaving Node's globals out means a stray
+       `process` or `node:fs` import in src/ fails here rather than at run time
+       inside the built page. The test suite gets them via tsconfig.test.json. */
+    "types": []
+  },
+  "include": ["src/**/*.ts"]
+}

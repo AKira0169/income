@@ -1,0 +1,14 @@
+/* The test suite and the build script run in Node, so they get Node's globals.
+   The app itself is checked by tsconfig.json without them. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    // The tests reach into a parsed workbook from an untyped oracle (SheetJS,
+    // installed only as a throwaway), so indexing it stays loose here.
+    "noImplicitAny": false
+  },
+  "include": ["test/**/*.ts", "build.mjs"]
+}

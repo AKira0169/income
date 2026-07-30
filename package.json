@@ -6,7 +6,15 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node test/roundtrip.mjs && node test/export.mjs",
-    "test:full": "npm install --no-save xlsx@0.18.5 && npm test"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "npm run typecheck && node test/roundtrip.ts && node test/export.ts",
+    "test:browser": "npm run build && node test/browser.mjs",
+    "test:full": "npm install --no-save xlsx@0.18.5 && npm test && npm run test:browser"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "esbuild": "^0.28.1",
+    "puppeteer-core": "^25.4.0",
+    "typescript": "^7.0.2"
   }
 }

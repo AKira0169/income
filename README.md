@@ -202,24 +202,51 @@ Restore only works from the JSON. The Excel file is a report, not a backup.
 
 ## Working on the code
 
-`income-tracker.html` is generated. Edit the files in `src/` and rebuild:
+`income-tracker.html` is generated. The source is TypeScript under `src/`,
+bundled by esbuild into the single page:
 
 ```
-node build.mjs
+npm install     # once — esbuild, typescript, and the test tooling
+npm run build
 ```
+
+The **shipped page still has no runtime dependencies**: nothing is fetched, and
+the only third-party code in it is the SQLite engine in `vendor/`. The
+toolchain, however, is a build-time dependency — esbuild is required to build at
+all, which is a deliberate trade for real modules and real types.
 
 | File | Role |
 | --- | --- |
-| `src/xlsx.js` | Dependency-free `.xlsx` writer — ZIP container plus SpreadsheetML |
-| `src/store.js` | Data model and all derived figures; persistence is injected |
-| `src/sqlite.js` | SQLite schema, read/write, IndexedDB persistence, SQL console |
-| `src/export.js` | Builds the workbook from the stored data |
-| `src/ui.js` | Rendering and interaction |
+| `src/types.ts` | The domain model — every record, and what its fields mean |
+| `src/store.ts` | Data model and all derived figures; persistence is injected |
+| `src/sqlite.ts` | SQLite schema, read/write, IndexedDB persistence, SQL console |
+| `src/xlsx.ts` | Dependency-free `.xlsx` writer — ZIP container plus SpreadsheetML |
+| `src/export.ts` | Builds the workbook from the stored data |
+| `src/gold.ts` | The daily price fetch — the only code here that uses the network |
+| `src/datepicker.ts` | The date field and its calendar |
+| `src/dom.ts` | The element builder the whole UI is written in |
+| `src/main.ts` | Bundle entry point; also publishes the `__app` console handle |
+| `src/ui/` | Shell, view state, forms, tables, and one module per tab |
 | `src/app.css` | The Paper design system |
 | `src/shell.html` | Page shell the build inlines everything into |
 | `vendor/` | sql.js 1.13.0 (MIT) — SQLite compiled to WebAssembly |
 | `make-icon.mjs` | Draws `income-tracker.ico` from the same mark as the favicon |
 | `make-shortcut.ps1` | Puts the app-mode shortcut on the Desktop |
+
+`src/ui/` splits by screen: `shell.ts` owns the frame and the draw loop,
+`view.ts` owns what is on screen, and `tabs/` holds one module per tab.
+`view.ts` imports nothing from the tabs and every tab imports `render()` from
+it, which is what keeps that dependency from becoming a cycle.
+
+Rendering rebuilds `#app` wholesale on every change. At these row counts that is
+a few milliseconds and it removes a whole class of stale-DOM bug, so the only
+things carried across a redraw are the ones a person would notice: the scroll
+position, and closing a calendar that is about to outlive its field.
+
+Two typecheck projects, because the two halves run in different places:
+`tsconfig.json` covers `src/` with the DOM but **without** Node's globals, so a
+stray `node:fs` import fails at the type level rather than inside the built page;
+`tsconfig.test.json` covers the tests and the build script, which are Node.
 
 `income-tracker.ico` is committed, so `make-icon.mjs` only needs running if the
 mark in `src/shell.html` changes. It rasterises the shape from its own geometry
@@ -268,17 +295,33 @@ Two deliberate deviations, both noted in the CSS:
 npm run test:full
 ```
 
-That installs SheetJS as a throwaway parser, writes real workbooks, and reads
-them back to confirm the bytes are a valid `.xlsx` — including non-ASCII text,
-emoji, XML metacharacters, negative amounts and pre-2000 dates, which are what
-break hand-rolled ZIP writers. It also checks money parsing, monthly summaries,
-account balances and recurring-bill generation.
+That runs everything: the typecheck, the Node suite, and the browser suite.
 
-`npm test` runs the same suite but skips the parser checks if SheetJS is not
-installed.
+`npm test` is the fast half — typecheck plus the Node suite. It installs
+SheetJS as a throwaway parser, writes real workbooks, and reads them back to
+confirm the bytes are a valid `.xlsx` — including non-ASCII text, emoji, XML
+metacharacters, negative amounts and pre-2000 dates, which are what break
+hand-rolled ZIP writers. It also checks money parsing, monthly summaries,
+account balances and recurring-bill generation. The parser checks are skipped if
+SheetJS is not installed.
 
-The browser half is verified separately by driving the built file from a real
-`file://` origin in headless Chrome: it boots, writes records, and the data is
-read back out of SQLite after a reload. The exported `.db` is then opened with
-Node's built-in SQLite — a different implementation from the one that wrote it —
-and passes `PRAGMA integrity_check`.
+`npm run test:browser` builds the page and drives it from a real `file://`
+origin in headless Chrome, which is the half Node cannot reach: SQLite compiled
+to WASM, IndexedDB, the DOM, and the `Blob` path the download buttons use. It
+enters a record through the actual form, reloads, and reads it back out of
+SQLite; it checks the date field's keyboard behaviour, that the exported `.db`
+carries a real SQLite header, that the SQL console refuses a write, and that
+nothing logged an error. It needs Chrome or Edge installed — set `CHROME_PATH`
+to choose one — and skips itself with a message if neither is found.
+
+Open `file://` rather than a local server for this: they are different origins
+with different databases, and the app is only ever opened the first way.
+
+### The `__app` console handle
+
+The built page exposes `__app` in the browser console — the live state, the
+account balances, the SQL console, and the workbook builder. It is what makes
+the browser suite possible, and it is useful for asking questions of your own
+data. It widens nothing: Settings already offers a read-only SQL console and
+hands over the whole database on request, and there is no server and no second
+origin here for it to expose anything to.

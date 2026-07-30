@@ -1,23 +1,25 @@
 /* Export test: seed the store, build the real workbook, parse it back.
-   Run:  node test/export.mjs      (XLSX_ORACLE must point at a dir with `xlsx`) */
+   Run:  node test/export.ts      (XLSX_ORACLE must point at a dir with `xlsx`) */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+
+import * as Store from '../src/store.ts';
+import * as DatePicker from '../src/datepicker.ts';
+import { build, filename } from '../src/export.ts';
+import type { Bill, Frequency, Period } from '../src/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.XLSX_OUT || join(here, '..', '.tmp');
 mkdirSync(outDir, { recursive: true });
 
-for (const mod of ['xlsx.js', 'store.js', 'datepicker.js', 'export.js']) {
-  await import(pathToFileURL(join(here, '..', 'src', mod)).href);
-}
-const { Store, Exporter, DatePicker } = globalThis;
-
 let failures = 0;
-const check = (label, actual, expected) => {
+const check = (label: string, actual: unknown, expected: unknown): void => {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  if (!ok) { failures++; console.log(`  FAIL ${label}\n       expected ${JSON.stringify(expected)}\n       actual   ${JSON.stringify(actual)}`); }
-  else console.log(`  ok   ${label}`);
+  if (!ok) {
+    failures++;
+    console.log(`  FAIL ${label}\n       expected ${JSON.stringify(expected)}\n       actual   ${JSON.stringify(actual)}`);
+  } else console.log(`  ok   ${label}`);
 };
 
 /* ---------------- money parsing (pure unit checks) ---------------- */
@@ -33,6 +35,11 @@ check('parenthesised negative', Store.parseMoney('(50)'), -5000);
 check('empty', Store.parseMoney(''), 0);
 check('grouped thousands no decimals', Store.parseMoney('12,000'), 1200000);
 check('number input', Store.parseMoney(19.99), 1999);
+// A minus only negates when it comes before the digits: text pasted in after an
+// amount used to flip the sign of the whole entry.
+check('a dash after the digits is not a sign', Store.parseMoney('1,200 - rent'), 120000);
+check('a symbol before the sign still negates', Store.parseMoney('$-42.10'), -4210);
+check('a hyphenated note is not negative', Store.parseMoney('50 e-mail top-up'), 5000);
 
 /* ---------------- seed ---------------- */
 const accId = 'acc_emergency';
@@ -115,30 +122,30 @@ console.log('\nautomatic catch-up:');
 check('the first sweep adds entries', Store.catchUp().total > 0, true);
 check('sweeping again adds nothing', Store.catchUp().total, 0);
 check('every template is marked swept to the current month',
-  Store.state.incomeTemplates.concat(Store.state.billTemplates)
-    .every(t => t.generatedThrough === Store.currentPeriod()), true);
+  [...Store.state.incomeTemplates, ...Store.state.billTemplates]
+    .every((t) => t.generatedThrough === Store.currentPeriod()), true);
 // The marker is what stops a row you deleted on purpose reappearing.
-const doomed = Store.state.income.filter(r => r.templateId === 'it1').pop();
+const doomed = Store.state.income.filter((r) => r.templateId === 'it1').pop()!;
 Store.remove('income', doomed.id);
 check('a deleted generated entry stays deleted', Store.catchUp().total, 0);
-check('and is really gone', Store.state.income.some(r => r.id === doomed.id), false);
+check('and is really gone', Store.state.income.some((r) => r.id === doomed.id), false);
 // Asking for a month explicitly still works after the sweep has passed it.
 check('the manual button can refill that month', Store.generateIncome(Store.periodOf(doomed.date)), 1);
 
 console.log('\nfrequencies:');
-const occurs = (frequency, anchor, period) =>
+const occurs = (frequency: Frequency, anchor: Period, period: Period): boolean =>
   Store.occursIn({ active: true, frequency, anchor }, period);
 check('monthly occurs every month', [occurs('Monthly', '2026-01', '2026-07'), occurs('Monthly', '2026-01', '2026-08')], [true, true]);
-check('quarterly: anchor, +3, not +1', ['2026-07', '2026-10', '2026-08'].map(p => occurs('Quarterly', '2026-07', p)), [true, true, false]);
-check('half-yearly: anchor, +6, not +3', ['2026-03', '2026-09', '2026-06'].map(p => occurs('Half-yearly', '2026-03', p)), [true, true, false]);
-check('yearly: anchor and +12 only', ['2026-04', '2027-04', '2026-10'].map(p => occurs('Yearly', '2026-04', p)), [true, true, false]);
-check('bi-monthly: every other month', ['2026-02', '2026-04', '2026-03'].map(p => occurs('Bi-monthly', '2026-02', p)), [true, true, false]);
-check('one-off: anchor month only', ['2026-05', '2026-06'].map(p => occurs('One-off', '2026-05', p)), [true, false]);
+check('quarterly: anchor, +3, not +1', ['2026-07', '2026-10', '2026-08'].map((p) => occurs('Quarterly', '2026-07', p)), [true, true, false]);
+check('half-yearly: anchor, +6, not +3', ['2026-03', '2026-09', '2026-06'].map((p) => occurs('Half-yearly', '2026-03', p)), [true, true, false]);
+check('yearly: anchor and +12 only', ['2026-04', '2027-04', '2026-10'].map((p) => occurs('Yearly', '2026-04', p)), [true, true, false]);
+check('bi-monthly: every other month', ['2026-02', '2026-04', '2026-03'].map((p) => occurs('Bi-monthly', '2026-02', p)), [true, true, false]);
+check('one-off: anchor month only', ['2026-05', '2026-06'].map((p) => occurs('One-off', '2026-05', p)), [true, false]);
 check('nothing occurs before its anchor', occurs('Quarterly', '2026-07', '2026-04'), false);
 check('paused templates never occur', Store.occursIn({ active: false, frequency: 'Monthly' }, '2026-07'), false);
 
 console.log('\nbill normalization (edit path must not desync status/period):');
-const nb = (bill) => Store.normalizeBill(bill, '2026-07');
+const nb = (bill: Partial<Bill>) => Store.normalizeBill(bill, '2026-07');
 check('entering a paid date marks it paid', nb({ dueDate: '2026-07-05', paidDate: '2026-07-04', status: 'unpaid' }).status, 'paid');
 check('clearing the paid date marks it unpaid', nb({ dueDate: '2026-07-05', paidDate: '', status: 'paid' }).status, 'unpaid');
 check('moving the due date refiles the period', nb({ dueDate: '2026-09-05', paidDate: '', period: '2026-07' }).period, '2026-09');
@@ -147,7 +154,7 @@ check('a normalized paid bill is not overdue', Store.billIsOverdue(nb({ dueDate:
 
 console.log('\nrestore refuses non-backups (must not wipe data):');
 const before = JSON.stringify(Store.state);
-const rejects = (label, text) => {
+const rejects = (label: string, text: string): void => {
   let threw = false;
   try { Store.importJSON(text); } catch { threw = true; }
   check(label + ' rejected', threw, true);
@@ -155,7 +162,7 @@ const rejects = (label, text) => {
 };
 rejects('an array', '[1,2,3]');
 rejects('an empty object', '{}');
-rejects('another app\'s export', '{"users":[],"settings":{"theme":"dark"}}');
+rejects("another app's export", '{"users":[],"settings":{"theme":"dark"}}');
 rejects('a bare string', '"hello"');
 rejects('null', 'null');
 check('a real backup is accepted', Store.importJSON(before).income, Store.state.income.length);
@@ -166,6 +173,7 @@ check('quarterly 60.00 -> 20.00/mo', Store.monthlyEquivalent({ frequency: 'Quart
 check('yearly 600.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Yearly', expected: 60000 }), 5000);
 check('half-yearly 300.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Half-yearly', expected: 30000 }), 5000);
 check('one-off counts as 0/mo', Store.monthlyEquivalent({ frequency: 'One-off', expected: 50000 }), 0);
+
 /* ---------------- accounts carry every flow, not just movements ---------- */
 console.log('\naccounts as real balances:');
 const base = 100000 + 50000 + 60000 - 15000;
@@ -228,7 +236,7 @@ check('buying gold takes money out of the account that paid',
 
 /* ---------------- the date field's parser ---------------- */
 console.log('\ndate parsing (the native picker is not used):');
-const parse = (text) => DatePicker.parse(text, '2026-07-10');
+const parse = (text: string) => DatePicker.parse(text, '2026-07-10');
 check('day and month', parse('5/8'), '2026-08-05');
 check('day month short year', parse('5-8-26'), '2026-08-05');
 check('dots', parse('5.8.2026'), '2026-08-05');
@@ -246,16 +254,16 @@ check('display is dd/mm/yyyy', DatePicker.display('2026-08-05'), '05/08/2026');
 // Roll back everything generated above so the export assertions below run
 // against the seed set. The price history is deliberately kept: it proves the
 // Gold sheet carries a series even when no gold is held.
-Store.state.bills = Store.state.bills.filter(b => ['b1', 'b2', 'b3', 'b4'].includes(b.id));
-Store.state.income = Store.state.income.filter(r => ['i1', 'i2', 'i3'].includes(r.id));
-Store.state.purchases = Store.state.purchases.filter(r => ['p1', 'p2'].includes(r.id));
-Store.state.accounts = Store.state.accounts.filter(a => [accId, 'acc_holiday'].includes(a.id));
-Store.state.savingsTx = Store.state.savingsTx.filter(t => ['s1', 's2', 's3', 's4'].includes(t.id));
+Store.state.bills = Store.state.bills.filter((b) => ['b1', 'b2', 'b3', 'b4'].includes(b.id));
+Store.state.income = Store.state.income.filter((r) => ['i1', 'i2', 'i3'].includes(r.id));
+Store.state.purchases = Store.state.purchases.filter((r) => ['p1', 'p2'].includes(r.id));
+Store.state.accounts = Store.state.accounts.filter((a) => [accId, 'acc_holiday'].includes(a.id));
+Store.state.savingsTx = Store.state.savingsTx.filter((t) => ['s1', 's2', 's3', 's4'].includes(t.id));
 Store.state.gold = [];
 
 /* ---------------- build + parse ---------------- */
-const bytes = Exporter.build({ type: 'all' });
-const file = join(outDir, Exporter.filename({ type: 'all' }));
+const bytes = build({ type: 'all' });
+const file = join(outDir, filename({ type: 'all' }));
 writeFileSync(file, bytes);
 console.log(`\nwrote ${file} (${bytes.length} bytes)`);
 
@@ -268,7 +276,7 @@ if (!existsSync(oraclePath)) {
 }
 const XLSX = await import(pathToFileURL(oraclePath).href);
 const wb = XLSX.read(readFileSync(file), { type: 'buffer', cellNF: true, cellStyles: true });
-const grid = (name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, blankrows: true });
+const grid = (name: string) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, blankrows: true });
 
 console.log('\nworkbook:');
 check('sheet names', wb.SheetNames, [
@@ -324,10 +332,13 @@ check('total row savings rate cached', Math.round(mb.J5.v * 10000) / 10000,
   Math.round((120000 / 685050) * 10000) / 10000);
 check('average row cached', mb.B6.v, ((320000 + 320000 + 45050) / 2) / 100);
 check('average row is a formula', mb.B6.f, 'AVERAGE(B2:B3)');
-['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'].forEach((col) => {
+['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].forEach((col) => {
   [5, 6].forEach((row) => {
     const cell = mb[col + row];
-    if (cell && cell.f && typeof cell.v !== 'number') { failures++; console.log(`  FAIL ${col}${row} formula has no cached value`); }
+    if (cell && cell.f && typeof cell.v !== 'number') {
+      failures++;
+      console.log(`  FAIL ${col}${row} formula has no cached value`);
+    }
   });
 });
 console.log('  ok   every total-row formula carries a cached value');
@@ -349,15 +360,15 @@ check('summary outstanding cached', wb.Sheets.Summary.B9.v, 96.19);
 check('currency format uses £', (wb.Sheets.Summary.B6.z || '').includes('£'), true);
 
 /* month-scoped export */
-const monthBytes = Exporter.build({ type: 'month', period: '2026-07' });
-const monthFile = join(outDir, Exporter.filename({ type: 'month', period: '2026-07' }));
+const monthBytes = build({ type: 'month', period: '2026-07' });
+const monthFile = join(outDir, filename({ type: 'month', period: '2026-07' }));
 writeFileSync(monthFile, monthBytes);
 const wb2 = XLSX.read(readFileSync(monthFile), { type: 'buffer', cellNF: true });
 const inc2 = XLSX.utils.sheet_to_json(wb2.Sheets.Income, { header: 1, raw: true });
 console.log('\nmonth scope:');
 // Data rows carry a date serial in column A; the total row does not.
-check('july export has 2 income rows', inc2.filter((r, i) => i > 0 && typeof r[0] === 'number').length, 2);
-check('july export excludes the june salary', inc2.some(r => r[0] === 46201), false);
+check('july export has 2 income rows', inc2.filter((r: unknown[], i: number) => i > 0 && typeof r[0] === 'number').length, 2);
+check('july export excludes the june salary', inc2.some((r: unknown[]) => r[0] === 46201), false);
 check('july scope label', XLSX.utils.sheet_to_json(wb2.Sheets.Summary, { header: 1, raw: true })[1][0], 'July 2026');
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
