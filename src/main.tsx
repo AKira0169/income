@@ -10,7 +10,7 @@ import { isDue, refresh as refreshGoldPrice } from './data/gold-price.ts';
 import { exportBytes, getBackend, query } from './data/sqlite.ts';
 import { app, boot, snapshot } from './state/app.ts';
 import { clearAll, upsert } from './state/actions.ts';
-import { goTab, startRouting } from './state/route.ts';
+import { goPeriod, goTab, startRouting } from './state/route.ts';
 import type { TabId } from './state/route.ts';
 import { App } from './ui/App.tsx';
 import { build as buildWorkbook, filename as workbookFilename } from './workbook/build.ts';
@@ -40,6 +40,7 @@ Object.assign(globalThis, {
     buildWorkbook,
     workbookFilename,
     goTab: (tab: TabId) => goTab(tab),
+    goPeriod: (period: string) => goPeriod(period),
     /** Kept for the console: a write already redraws on its own. */
     render: () => { app.value = { ...app.peek() }; }
   }

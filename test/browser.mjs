@@ -208,6 +208,42 @@ try {
   check('as is the date the user picked',
     await tab.evaluate(() => document.querySelector('.dp-text').value !== ''), true);
 
+  /* ---------------- inline editing keeps the field ---------------- */
+
+  /* The regression the rewrite exists to fix. The old draw() cleared #app and
+     rebuilt it on every write, so committing an inline amount destroyed the
+     input being typed in and threw the page back up to the top. */
+  console.log('\nediting a bill amount in place:');
+  await tab.evaluate(() => globalThis.__app.upsert('bills', {
+    id: 'bil_t', templateId: null, name: 'Electricity', category: 'Electricity', provider: '',
+    dueDate: '2026-07-20', amount: 0, accountId: 'acc_t', units: null, unitRate: null,
+    paidDate: '', method: '', notes: ''
+  }));
+  await tab.evaluate(() => globalThis.__app.goTab('bills'));
+  await tab.evaluate(() => globalThis.__app.goPeriod('2026-07'));
+  await tab.waitForSelector('input[aria-label="Electricity amount"]');
+
+  const inlineEdit = await tab.evaluate(async () => {
+    const field = document.querySelector('input[aria-label="Electricity amount"]');
+    field.focus();
+    field.value = '1,250.75';
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    const after = document.querySelector('input[aria-label="Electricity amount"]');
+    return {
+      stored: globalThis.__app.state().bills.find((b) => b.id === 'bil_t').amount,
+      sameNode: after === field,
+      stillFocused: document.activeElement === field,
+      scroll: window.scrollY
+    };
+  });
+  check('the amount is stored as cents', inlineEdit.stored, 125075);
+  check('the input was not torn down and rebuilt', inlineEdit.sameNode, true);
+  check('focus stayed in the field', inlineEdit.stillFocused, true);
+  check('and the page did not jump', inlineEdit.scroll, 0);
+
+  await tab.evaluate(() => globalThis.__app.goTab('purchases'));
+
   /* ---------------- the browser-only export path ---------------- */
   console.log('\nexport from the browser (Blob + TextEncoder, never hit in Node):');
   const xlsx = await tab.evaluate(() => {
