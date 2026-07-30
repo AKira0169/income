@@ -10,7 +10,8 @@
 import { fourDigit, parse } from '../src/domain/date-parse.ts';
 import { blankState, updateSettings, upsert } from '../src/domain/records.ts';
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
-import * as Store from '../src/store.ts';
+import { attachPersistence, app } from '../src/state/app.ts';
+import { upsert as commitUpsert } from '../src/state/actions.ts';
 import type { AppState } from '../src/domain/types.ts';
 
 let failures = 0;
@@ -140,18 +141,18 @@ check('linking with nothing to link keeps the same state',
    used to cost one rewrite each; they are coalesced into a microtask now. */
 console.log('\nsaves are batched:');
 let saves = 0;
-Store.attachPersistence({ save: () => { saves++; return true; } });
+attachPersistence({ save: () => { saves++; return true; } });
 
-Store.upsert('accounts', { id: 'a1', name: 'Card', type: 'Current Account', opening: 0, target: 0, notes: '' });
-Store.upsert('purchases', { id: 'p1', date: '2026-07-01', item: 'Tea', category: 'Groceries', amount: 500, accountId: 'a1', method: 'Cash', notes: '' });
-Store.upsert('purchases', { id: 'p2', date: '2026-07-02', item: 'Bread', category: 'Groceries', amount: 300, accountId: 'a1', method: 'Cash', notes: '' });
+commitUpsert('accounts', { id: 'a1', name: 'Card', type: 'Current Account', opening: 0, target: 0, notes: '' });
+commitUpsert('purchases', { id: 'p1', date: '2026-07-01', item: 'Tea', category: 'Groceries', amount: 500, accountId: 'a1', method: 'Cash', notes: '' });
+commitUpsert('purchases', { id: 'p2', date: '2026-07-02', item: 'Bread', category: 'Groceries', amount: 300, accountId: 'a1', method: 'Cash', notes: '' });
 check('nothing has been written yet, mid-turn', saves, 0);
-check('but the state is already correct', Store.state.purchases.length, 2);
+check('but the state is already correct', app.peek().purchases.length, 2);
 
 await Promise.resolve();
 check('three writes cost one save', saves, 1);
 
-Store.upsert('purchases', { id: 'p3', date: '2026-07-03', item: 'Milk', category: 'Groceries', amount: 200, accountId: 'a1', method: 'Cash', notes: '' });
+commitUpsert('purchases', { id: 'p3', date: '2026-07-03', item: 'Milk', category: 'Groceries', amount: 200, accountId: 'a1', method: 'Cash', notes: '' });
 await Promise.resolve();
 check('a later turn saves again', saves, 2);
 

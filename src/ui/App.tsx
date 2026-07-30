@@ -1,42 +1,30 @@
-/* ui/App.tsx — the whole page: boot screen, frame, and whichever tab is on.
-
-   Tabs still built by hand go through <LegacyTab/>; ported ones are components.
-   The list below is the only place that knows which is which, so a port is one
-   line changed here plus the new component. */
+/* ui/App.tsx — the whole page: boot screen, frame, and whichever tab is on. */
 
 import { useEffect } from 'preact/hooks';
 import { plural } from '../domain/money.ts';
 import { app, bootError, booting, storageOk } from '../state/app.ts';
-import { period as routePeriod, tab as routeTab } from '../state/route.ts';
+import { tab as routeTab } from '../state/route.ts';
 import type { TabId } from '../state/route.ts';
-import { Toast, toast } from './components/Toast.tsx';
-import { LegacyTab } from './LegacyTab.tsx';
-import { Topbar } from './Topbar.tsx';
-import { view } from './view.ts';
 import type { BootOutcome } from '../state/app.ts';
+import { Toast, toast } from './components/Toast.tsx';
+import { Topbar } from './Topbar.tsx';
 
 import { Accounts } from './tabs/Accounts.tsx';
 import { Bills } from './tabs/Bills.tsx';
+import { Dashboard } from './tabs/Dashboard.tsx';
+import { Gold } from './tabs/Gold.tsx';
 import { Income } from './tabs/Income.tsx';
 import { Purchases } from './tabs/Purchases.tsx';
 import { Settings } from './tabs/Settings.tsx';
 
-import { renderDashboard } from './tabs/dashboard.ts';
-import { renderGold } from './tabs/gold.ts';
-
-/** Tabs that are components. Anything not here is still hand-built and goes
-    through <LegacyTab/>; this list is the whole record of how far the port is. */
-const PORTED: Partial<Record<TabId, () => preact.JSX.Element>> = {
-  bills: Bills,
+const TABS: Readonly<Record<TabId, () => preact.JSX.Element>> = {
+  dashboard: Dashboard,
   income: Income,
+  bills: Bills,
   purchases: Purchases,
   savings: Accounts,
+  gold: Gold,
   settings: Settings
-};
-
-const LEGACY: Partial<Record<TabId, () => HTMLElement>> = {
-  dashboard: renderDashboard,
-  gold: renderGold
 };
 
 function Splash({ title, lines }: { title: string; lines: readonly string[] }) {
@@ -63,14 +51,6 @@ function StorageNotice() {
 
 export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
   const tabId = routeTab.value;
-  const period = routePeriod.value;
-
-  /* The legacy tab modules read view.tab and view.period directly rather than
-     taking them as arguments. Mirrored here, during App's own render, because
-     App renders before its children and so before any tab is built. One site,
-     and it disappears with the last legacy tab. */
-  view.tab = tabId;
-  view.period = period;
 
   /* Announced once the database is open, not on every render. A quiet catch-up
      that moved a balance is alarming when it is not explained. */
@@ -90,7 +70,7 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
 
   /* Moving to another tab starts at the top; re-rendering in place — saving a
      row, opening a form — leaves the scroll exactly where it was, which is what
-     Preact diffing gives for free and the old teardown had to rescue by hand. */
+     the diffing gives for free and the old teardown had to rescue by hand. */
   useEffect(() => { window.scrollTo(0, 0); }, [tabId]);
 
   if (bootError.value) {
@@ -103,17 +83,14 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
   // Read so the frame redraws with the data, not only with the route.
   app.value;
 
-  const Ported = PORTED[tabId];
-  const legacy = LEGACY[tabId];
+  const Tab = TABS[tabId];
 
   return (
     <>
       <Topbar />
       <main>
         <StorageNotice />
-        {Ported
-          ? <Ported key={tabId} />
-          : legacy ? <LegacyTab key={tabId} render={legacy} /> : null}
+        <Tab key={tabId} />
       </main>
       <Toast />
     </>

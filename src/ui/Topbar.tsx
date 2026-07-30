@@ -4,13 +4,14 @@
    domain functions. Calling the old-arity wrappers in store.ts here would
    render once and then never update — they read a plain binding, not a signal. */
 
+import { useState } from 'preact/hooks';
 import { currentPeriod, periodLabel, shiftPeriod } from '../domain/period.ts';
 import { activePeriods } from '../domain/selectors.ts';
 import { app } from '../state/app.ts';
 import { go, period as routePeriod, tab as routeTab } from '../state/route.ts';
 import type { TabId } from '../state/route.ts';
 import type { AppState, Period } from '../domain/types.ts';
-import { openExportDialog } from './export-dialog.ts';
+import { ExportDialog } from './components/ExportDialog.tsx';
 
 declare const __BUILD__: string | undefined;
 
@@ -43,6 +44,7 @@ export function Topbar() {
   const showing = routePeriod.value;
   const active = routeTab.value;
   const locale = state.settings.locale;
+  const [exporting, setExporting] = useState(false);
 
   return (
     <header class="topbar">
@@ -75,7 +77,7 @@ export function Topbar() {
           >›</button>
           <button class="quiet" onClick={() => go({ period: currentPeriod() })}>Today</button>
         </div>
-        <button class="primary" onClick={openExportDialog}>Export to Excel</button>
+        <button class="primary" onClick={() => setExporting(true)}>Export to Excel</button>
       </div>
       <nav class="tabs" role="tablist">
         {TABS.map((t) => (
@@ -88,6 +90,9 @@ export function Topbar() {
           >{t.label}</button>
         ))}
       </nav>
+      {exporting ? (
+        <ExportDialog period={showing} settings={state.settings} onClose={() => setExporting(false)} />
+      ) : null}
     </header>
   );
 }

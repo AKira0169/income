@@ -14,6 +14,7 @@ import { goPeriod, goTab, startRouting } from './state/route.ts';
 import type { TabId } from './state/route.ts';
 import { App } from './ui/App.tsx';
 import { build as buildWorkbook, filename as workbookFilename } from './workbook/build.ts';
+import type { Scope } from './workbook/build.ts';
 
 /* Supplied by the build: the wasm binary, base64'd into the page because a
    file:// document cannot fetch a sibling. */
@@ -37,7 +38,7 @@ Object.assign(globalThis, {
     clearAll,
     query,
     exportDb: exportBytes,
-    buildWorkbook,
+    buildWorkbook: (scope: Scope) => buildWorkbook(snapshot(), scope),
     workbookFilename,
     goTab: (tab: TabId) => goTab(tab),
     goPeriod: (period: string) => goPeriod(period),

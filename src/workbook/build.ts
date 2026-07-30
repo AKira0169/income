@@ -4,16 +4,20 @@
    still add up if you edit rows in Excel, and still read correctly in a tool
    that never evaluates formulas. */
 
+import { METERED } from '../domain/catalog.ts';
+import { plural } from '../domain/money.ts';
+import { monthlyEquivalent, periodLabel, todayISO } from '../domain/period.ts';
+import { billIsOverdue } from '../domain/recurring.ts';
 import {
-  accountBalance, accountFlows, accountName, activePeriods, billIsOverdue, billsIn,
-  goldHoldings, goldIn, goldPricePerGram, goldSummary, groupByCategory, incomeIn,
-  METERED, monthlyEquivalent, periodLabel, plural, purchasesIn, savingsBalance,
-  savingsMovement, savingsTxIn, state, sum, summary, todayISO, totalSavings
-} from '../store.ts';
+  accountBalance, accountFlows, accountName, activePeriods, billsIn, groupByCategory,
+  incomeIn, purchasesIn, savingsBalance, savingsMovement, savingsTxIn, sum, summary,
+  totalSavings
+} from '../domain/selectors.ts';
+import { goldHoldings, goldIn, goldPricePerGram, goldSummary } from '../domain/gold.ts';
 import { write } from './xlsx.ts';
 import type { CellInput, CellObject, Sheet, StyleName } from './xlsx.ts';
 import type {
-  Bill, Cents, GoldEntry, IncomeEntry, IsoDate, Period, Purchase, SavingsTx
+  AppState, Bill, Cents, GoldEntry, IncomeEntry, IsoDate, Period, Purchase, SavingsTx
 } from '../domain/types.ts';
 
 /* ------------------------------------------------------------ cell makers */
@@ -69,7 +73,7 @@ export interface ScopeSelection {
   periods: Period[];
 }
 
-export function scopeRecords(scope: Scope): ScopeSelection {
+export function scopeRecords(state: AppState, scope: Scope): ScopeSelection {
   if (scope.type === 'all') {
     return {
       income: state.income.slice(),
@@ -77,7 +81,7 @@ export function scopeRecords(scope: Scope): ScopeSelection {
       purchases: state.purchases.slice(),
       savingsTx: state.savingsTx.slice(),
       gold: state.gold.slice(),
-      periods: activePeriods().slice().sort()
+      periods: activePeriods(state).slice().sort()
     };
   }
 
@@ -90,25 +94,25 @@ export function scopeRecords(scope: Scope): ScopeSelection {
       purchases: state.purchases.filter((r) => inYear(r.date)),
       savingsTx: state.savingsTx.filter((r) => inYear(r.date)),
       gold: state.gold.filter((r) => inYear(r.date)),
-      periods: activePeriods().filter((p) => p.slice(0, 4) === yr).sort()
+      periods: activePeriods(state).filter((p) => p.slice(0, 4) === yr).sort()
     };
   }
 
   const p = scope.period;
   return {
-    income: incomeIn(p),
-    bills: billsIn(p),
-    purchases: purchasesIn(p),
-    savingsTx: savingsTxIn(p),
-    gold: goldIn(p),
+    income: incomeIn(state, p),
+    bills: billsIn(state, p),
+    purchases: purchasesIn(state, p),
+    savingsTx: savingsTxIn(state, p),
+    gold: goldIn(state, p),
     periods: [p]
   };
 }
 
-export function scopeLabel(scope: Scope): string {
+export function scopeLabel(state: AppState, scope: Scope): string {
   if (scope.type === 'all') return 'All time';
   if (scope.type === 'year') return `Year ${scope.year}`;
-  return periodLabel(scope.period);
+  return periodLabel(scope.period, state.settings.locale);
 }
 
 /* ---------------------------------------------------------------- sheets */
@@ -134,14 +138,14 @@ const filterRange = (lastCol: string, count: number): string | undefined =>
 /* The Recurring and Paid Into columns are appended rather than inserted:
    Amount stays in column D, which the Summary sheet and the total below both
    address by letter. */
-function incomeSheet(records: readonly IncomeEntry[]): IncomeSheet {
+function incomeSheet(state: AppState, records: readonly IncomeEntry[]): IncomeSheet {
   const sorted = records.slice().sort(byDate);
   const rows: CellInput[][] = [
     headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring', 'Paid Into'])
   ];
   for (const r of sorted) {
     rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '',
-      r.notes || '', r.templateId ? 'Yes' : '', accountName(r.accountId)]);
+      r.notes || '', r.templateId ? 'Yes' : '', accountName(state, r.accountId)]);
   }
   const total = sum(sorted, (r) => r.amount);
   rows.push([]);
@@ -156,7 +160,7 @@ function incomeSheet(records: readonly IncomeEntry[]): IncomeSheet {
   };
 }
 
-function incomeTemplatesSheet(): Sheet {
+function incomeTemplatesSheet(state: AppState): Sheet {
   const templates = state.incomeTemplates;
   const rows: CellInput[][] = [
     headerRow(['Source', 'Category', 'Frequency', 'Pay Day', 'Expected Amount',
@@ -181,7 +185,7 @@ function incomeTemplatesSheet(): Sheet {
   };
 }
 
-function billsSheet(records: readonly Bill[]): BillsSheet {
+function billsSheet(state: AppState, records: readonly Bill[]): BillsSheet {
   const sorted = records.slice().sort((a, b) =>
     String(a.period + a.dueDate).localeCompare(String(b.period + b.dueDate)));
 
@@ -198,7 +202,7 @@ function billsSheet(records: readonly Bill[]): BillsSheet {
       METERED[b.category] || '',
       optionalNumber(b.unitRate),
       status,
-      date(b.paidDate), b.method || '', b.notes || '', accountName(b.accountId)
+      date(b.paidDate), b.method || '', b.notes || '', accountName(state, b.accountId)
     ]);
   }
   const total = sum(sorted, (r) => r.amount);
@@ -218,7 +222,7 @@ function billsSheet(records: readonly Bill[]): BillsSheet {
   };
 }
 
-function billTemplatesSheet(): Sheet {
+function billTemplatesSheet(state: AppState): Sheet {
   const templates = state.billTemplates;
   const rows: CellInput[][] = [
     headerRow(['Bill', 'Category', 'Provider', 'Frequency', 'Due Day', 'Expected Amount',
@@ -242,14 +246,14 @@ function billTemplatesSheet(): Sheet {
   };
 }
 
-function purchasesSheet(records: readonly Purchase[]): PurchasesSheet {
+function purchasesSheet(state: AppState, records: readonly Purchase[]): PurchasesSheet {
   const sorted = records.slice().sort(byDate);
   const rows: CellInput[][] = [
     headerRow(['Date', 'Item', 'Category', 'Amount', 'Method', 'Notes', 'Paid From'])
   ];
   for (const r of sorted) {
     rows.push([date(r.date), r.item || '', r.category || '', money(r.amount), r.method || '',
-      r.notes || '', accountName(r.accountId)]);
+      r.notes || '', accountName(state, r.accountId)]);
   }
   const total = sum(sorted, (r) => r.amount);
   rows.push([]);
@@ -268,14 +272,14 @@ function purchasesSheet(records: readonly Purchase[]): PurchasesSheet {
    and Withdrawn cover every flow that touches the account, not only the
    movements you recorded by hand, or the columns would not add up to the
    balance beside them. */
-function accountsSheet(): AccountsSheet {
+function accountsSheet(state: AppState): AccountsSheet {
   const rows: CellInput[][] = [
     headerRow(['Account', 'Type', 'Opening Balance', 'Paid In', 'Withdrawn', 'Current Balance',
       'Target', 'Progress', 'Notes', 'Income', 'Purchases', 'Bills Paid', 'Gold', 'Moved In', 'Moved Out'])
   ];
   for (const a of state.accounts) {
-    const f = accountFlows(a.id);
-    const balance = accountBalance(a.id);
+    const f = accountFlows(state, a.id);
+    const balance = accountBalance(state, a.id);
     rows.push([
       a.name || '', a.type || '', money(a.opening),
       money(f.income + f.savedIn),
@@ -288,11 +292,11 @@ function accountsSheet(): AccountsSheet {
       money(f.savedIn), money(f.savedOut)
     ]);
   }
-  const total = totalSavings();
+  const total = totalSavings(state);
   rows.push([]);
   rows.push([bold('Across all accounts'), null, null, null, null,
     columnTotal('F', 2, state.accounts.length + 1, total)]);
-  rows.push([bold('Of which savings pots'), null, null, null, null, moneyBold(savingsBalance())]);
+  rows.push([bold('Of which savings pots'), null, null, null, null, moneyBold(savingsBalance(state))]);
 
   return {
     name: 'Savings Accounts', freeze: 1,
@@ -308,24 +312,24 @@ function movementLabel(t: SavingsTx): string {
   return t.direction === 'out' ? 'Withdrawal' : 'Deposit';
 }
 
-function savingsTxSheet(records: readonly SavingsTx[]): SavingsSheet {
+function savingsTxSheet(state: AppState, records: readonly SavingsTx[]): SavingsSheet {
   const sorted = records.slice().sort(byDate);
   const rows: CellInput[][] = [
     headerRow(['Date', 'Account', 'Direction', 'Amount', 'Notes', 'From Account', 'Counts As Saving'])
   ];
   for (const t of sorted) {
-    const move = savingsMovement(t);
+    const move = savingsMovement(state, t);
     rows.push([
-      date(t.date), accountName(t.accountId) || '(deleted account)',
+      date(t.date), accountName(state, t.accountId) || '(deleted account)',
       movementLabel(t), money(t.amount), t.notes || '',
-      t.direction === 'transfer' ? (accountName(t.fromAccountId) || '(deleted account)') : '',
+      t.direction === 'transfer' ? (accountName(state, t.fromAccountId) || '(deleted account)') : '',
       move.in ? 'In' : (move.out ? 'Out' : 'No')
     ]);
   }
   // Moving money between two of your own pots is not saving more of it, so the
   // totals count only what crossed the line into or out of savings.
-  const movedIn = sum(sorted, (t) => savingsMovement(t).in);
-  const movedOut = sum(sorted, (t) => savingsMovement(t).out);
+  const movedIn = sum(sorted, (t) => savingsMovement(state, t).in);
+  const movedOut = sum(sorted, (t) => savingsMovement(state, t).out);
   rows.push([]);
   rows.push([bold('Into savings'), null, null, moneyBold(movedIn)]);
   rows.push([bold('Out of savings'), null, null, moneyBold(movedOut)]);
@@ -342,7 +346,7 @@ function savingsTxSheet(records: readonly SavingsTx[]): SavingsSheet {
 
 /* Gold: what was bought and sold, what is left, and the daily price series the
    valuation is built on — so the workbook stands on its own. */
-function goldSheet(records: readonly GoldEntry[]): Sheet {
+function goldSheet(state: AppState, records: readonly GoldEntry[]): Sheet {
   const sorted = records.slice().sort(byDate);
   const rows: CellInput[][] = [
     headerRow(['Date', 'Bought / Sold', 'Karat', 'Grams', 'Amount', 'Price / Gram',
@@ -359,18 +363,18 @@ function goldSheet(records: readonly GoldEntry[]): Sheet {
       grams
         ? { t: 'formula', f: `IF(D${line}=0,"",E${line}/D${line})`, v: (r.amount / 100) / grams, s: 'money' }
         : null,
-      accountName(r.accountId), r.dealer || '', r.notes || ''
+      accountName(state, r.accountId), r.dealer || '', r.notes || ''
     ]);
   });
   if (!sorted.length) rows.push([styled('No gold recorded in this period.', 'muted')]);
 
-  const figures = goldSummary();
+  const figures = goldSummary(state);
   rows.push([]);
   rows.push(Array.from({ length: 6 }, (_, i) => styled(i === 0 ? 'Held now (all time)' : '', 'group')));
   rows.push([head('Karat'), head('Grams'), head('Price / Gram'), head('Worth')]);
-  for (const h of goldHoldings()) {
+  for (const h of goldHoldings(state)) {
     rows.push([{ t: 'int', v: h.karat }, { t: 'number', v: h.grams },
-      money(goldPricePerGram(h.karat)), money(h.value)]);
+      money(goldPricePerGram(state, h.karat)), money(h.value)]);
   }
   rows.push([bold('Total worth'), null, null, moneyBold(figures.value)]);
   rows.push([bold('Paid for it'), null, null, moneyBold(figures.invested)]);
@@ -398,14 +402,14 @@ function goldSheet(records: readonly GoldEntry[]): Sheet {
 const MONTHLY_KEYS = ['income', 'bills', 'purchases', 'spent', 'net', 'savedIn', 'savedOut', 'savedNet'] as const;
 const MONTHLY_COLS = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] as const;
 
-function monthlySheet(periods: readonly Period[]): Sheet {
+function monthlySheet(state: AppState, periods: readonly Period[]): Sheet {
   const list = periods.slice().sort();
   const rows: CellInput[][] = [
     headerRow(['Month', 'Income', 'Bills', 'Purchases', 'Total Spent', 'Net',
       'Paid Into Savings', 'Withdrawn', 'Net Saved', 'Savings Rate'])
   ];
 
-  const summaries = list.map((p) => summary(p));
+  const summaries = list.map((p) => summary(state, p));
   summaries.forEach((s, i) => {
     const r = i + 2;
     rows.push([
@@ -537,7 +541,7 @@ interface BuiltSheets {
   savingsTx: SavingsSheet;
 }
 
-function summarySheet(scope: Scope, sel: ScopeSelection, sheets: BuiltSheets): Sheet {
+function summarySheet(state: AppState, scope: Scope, sel: ScopeSelection, sheets: BuiltSheets): Sheet {
   const income = sheets.income.total;
   const billsTotal = sheets.bills.total;
   const billsPaid = sheets.bills.paid;
@@ -555,7 +559,7 @@ function summarySheet(scope: Scope, sel: ScopeSelection, sheets: BuiltSheets): S
   };
 
   rows.push([styled('Income & Spending Report', 'title')]);
-  rows.push([styled(scopeLabel(scope), 'muted')]);
+  rows.push([styled(scopeLabel(state, scope), 'muted')]);
   rows.push([styled(`Generated ${todayISO()} · currency ${state.settings.currencyCode || ''}`, 'muted')]);
   rows.push([]);
 
@@ -606,7 +610,7 @@ function summarySheet(scope: Scope, sel: ScopeSelection, sheets: BuiltSheets): S
   /* Only when there is gold to report. An empty block on everyone else's
      summary would be noise, and the rows above keep their addresses. */
   if (state.gold.length) {
-    const gold = goldSummary();
+    const gold = goldSummary(state);
     groupHeading('Gold');
     line('Gold held', { t: 'number', v: gold.grams }, `${gold.pure.toFixed(2)} g of pure gold`);
     line('Worth today', moneyBold(gold.value),
@@ -630,25 +634,25 @@ function summarySheet(scope: Scope, sel: ScopeSelection, sheets: BuiltSheets): S
 
 /* ------------------------------------------------------------------ build */
 
-export function build(scope: Scope): Uint8Array<ArrayBuffer> {
-  const sel = scopeRecords(scope);
+export function build(state: AppState, scope: Scope): Uint8Array<ArrayBuffer> {
+  const sel = scopeRecords(state, scope);
   const sheets = {
-    income: incomeSheet(sel.income),
-    bills: billsSheet(sel.bills),
-    purchases: purchasesSheet(sel.purchases),
-    accounts: accountsSheet(),
-    savingsTx: savingsTxSheet(sel.savingsTx)
+    income: incomeSheet(state, sel.income),
+    bills: billsSheet(state, sel.bills),
+    purchases: purchasesSheet(state, sel.purchases),
+    accounts: accountsSheet(state),
+    savingsTx: savingsTxSheet(state, sel.savingsTx)
   };
 
   return write({
     currency: state.settings.currencySymbol,
     // Sheet order is the reading order of the report, not the build order.
     sheets: [
-      summarySheet(scope, sel, sheets),
-      sheets.income, incomeTemplatesSheet(),
-      sheets.bills, billTemplatesSheet(), sheets.purchases,
-      utilitiesSheet(sel.bills), sheets.accounts, sheets.savingsTx, goldSheet(sel.gold),
-      monthlySheet(sel.periods), categorySheet(sel)
+      summarySheet(state, scope, sel, sheets),
+      sheets.income, incomeTemplatesSheet(state),
+      sheets.bills, billTemplatesSheet(state), sheets.purchases,
+      utilitiesSheet(sel.bills), sheets.accounts, sheets.savingsTx, goldSheet(state, sel.gold),
+      monthlySheet(state, sel.periods), categorySheet(sel)
     ]
   });
 }
