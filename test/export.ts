@@ -4,14 +4,34 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-import * as Store from '../src/store.ts';
-import * as DatePicker from '../src/datepicker.ts';
-import { build, filename } from '../src/export.ts';
-import type { Bill, Frequency, Period } from '../src/types.ts';
+import * as DatePicker from '../src/domain/date-parse.ts';
+import { parseMoney } from '../src/domain/money.ts';
+import { currentPeriod, monthlyEquivalent, occursIn, periodOf } from '../src/domain/period.ts';
+import { normalizeBill } from '../src/domain/records.ts';
+import { billIsOverdue } from '../src/domain/recurring.ts';
+import {
+  accountBalance, activePeriods, incomeIn, summary, totalSavings
+} from '../src/domain/selectors.ts';
+import {
+  goldGramFromSpot, goldHoldings, goldInvested, goldPricePerGram, goldSummary, goldValue
+} from '../src/domain/gold.ts';
+import { app, snapshot } from '../src/state/app.ts';
+import {
+  catchUp, generateBills, generateIncome, importJSON, recordGoldPrice, remove,
+  replaceState, updateSettings, upsert
+} from '../src/state/actions.ts';
+import { build, filename } from '../src/workbook/build.ts';
+import type { AppState, Bill, CollectionKey, Frequency, Period } from '../src/domain/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = process.env.XLSX_OUT || join(here, '..', '.tmp');
 mkdirSync(outDir, { recursive: true });
+
+/** Prunes a collection down to a given list. Only the test does this — the app
+    has no operation that replaces a whole table at once. */
+const keepOnly = <K extends CollectionKey>(collection: K, records: AppState[K]): void => {
+  app.value = { ...app.peek(), [collection]: records } as AppState;
+};
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -24,26 +44,26 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 
 /* ---------------- money parsing (pure unit checks) ---------------- */
 console.log('parseMoney:');
-check('plain', Store.parseMoney('1234.56'), 123456);
-check('grouped', Store.parseMoney('1,234.56'), 123456);
-check('european', Store.parseMoney('1.234,56'), 123456);
-check('with symbol', Store.parseMoney('$ 1 234.56'), 123456);
-check('integer', Store.parseMoney('80'), 8000);
-check('one decimal', Store.parseMoney('80.5'), 8050);
-check('negative', Store.parseMoney('-42.10'), -4210);
-check('parenthesised negative', Store.parseMoney('(50)'), -5000);
-check('empty', Store.parseMoney(''), 0);
-check('grouped thousands no decimals', Store.parseMoney('12,000'), 1200000);
-check('number input', Store.parseMoney(19.99), 1999);
+check('plain', parseMoney('1234.56'), 123456);
+check('grouped', parseMoney('1,234.56'), 123456);
+check('european', parseMoney('1.234,56'), 123456);
+check('with symbol', parseMoney('$ 1 234.56'), 123456);
+check('integer', parseMoney('80'), 8000);
+check('one decimal', parseMoney('80.5'), 8050);
+check('negative', parseMoney('-42.10'), -4210);
+check('parenthesised negative', parseMoney('(50)'), -5000);
+check('empty', parseMoney(''), 0);
+check('grouped thousands no decimals', parseMoney('12,000'), 1200000);
+check('number input', parseMoney(19.99), 1999);
 // A minus only negates when it comes before the digits: text pasted in after an
 // amount used to flip the sign of the whole entry.
-check('a dash after the digits is not a sign', Store.parseMoney('1,200 - rent'), 120000);
-check('a symbol before the sign still negates', Store.parseMoney('$-42.10'), -4210);
-check('a hyphenated note is not negative', Store.parseMoney('50 e-mail top-up'), 5000);
+check('a dash after the digits is not a sign', parseMoney('1,200 - rent'), 120000);
+check('a symbol before the sign still negates', parseMoney('$-42.10'), -4210);
+check('a hyphenated note is not negative', parseMoney('50 e-mail top-up'), 5000);
 
 /* ---------------- seed ---------------- */
 const accId = 'acc_emergency';
-Store.replaceState({
+replaceState({
   settings: { currencySymbol: '£', currencyCode: 'GBP', locale: 'en-GB', savingsGoalRate: 20 },
   income: [
     { id: 'i1', date: '2026-06-28', source: 'Acme Ltd', category: 'Salary', amount: 320000, method: 'Bank Transfer', notes: 'June pay' },
@@ -82,7 +102,7 @@ Store.replaceState({
 
 /* ---------------- derived figures ---------------- */
 console.log('\nsummary(2026-07):');
-const s = Store.summary('2026-07');
+const s = summary(snapshot(), '2026-07');
 check('income', s.income, 320000 + 45050);
 check('bills', s.bills, 9145 + 6120 + 3499);
 check('purchases', s.purchases, 8734 + 12999);
@@ -95,46 +115,46 @@ check('billsPaid', s.billsPaid, 9145);
 check('billsOutstanding', s.billsOutstanding, 6120 + 3499);
 
 console.log('\nbalances:');
-check('emergency fund balance', Store.accountBalance(accId), 100000 + 50000 + 60000 - 15000);
-check('total savings', Store.totalSavings(), (100000 + 50000 + 60000 - 15000) + 25000);
-check('active periods', Store.activePeriods().includes('2026-06') && Store.activePeriods().includes('2026-07'), true);
+check('emergency fund balance', accountBalance(snapshot(), accId), 100000 + 50000 + 60000 - 15000);
+check('total savings', totalSavings(snapshot()), (100000 + 50000 + 60000 - 15000) + 25000);
+check('active periods', activePeriods(snapshot()).includes('2026-06') && activePeriods(snapshot()).includes('2026-07'), true);
 
 console.log('\nbill generation:');
-const beforeAug = Store.state.bills.length;
-const made = Store.generateBills('2026-08');
+const beforeAug = snapshot().bills.length;
+const made = generateBills('2026-08');
 check('august generates monthly only (water is quarterly from July)', made, 1);
-check('bill count grew by 1', Store.state.bills.length, beforeAug + 1);
-check('re-running is idempotent', Store.generateBills('2026-08'), 0);
-check('october picks up quarterly water', Store.generateBills('2026-10'), 2);
+check('bill count grew by 1', snapshot().bills.length, beforeAug + 1);
+check('re-running is idempotent', generateBills('2026-08'), 0);
+check('october picks up quarterly water', generateBills('2026-10'), 2);
 
 console.log('\nrecurring income:');
-check('august generates the monthly salary only (rent is quarterly from July)', Store.generateIncome('2026-08'), 1);
-check('re-running is idempotent', Store.generateIncome('2026-08'), 0);
-const aug = Store.incomeIn('2026-08');
+check('august generates the monthly salary only (rent is quarterly from July)', generateIncome('2026-08'), 1);
+check('re-running is idempotent', generateIncome('2026-08'), 0);
+const aug = incomeIn(snapshot(), '2026-08');
 check('one august entry', aug.length, 1);
 check('lands on the pay day', aug[0].date, '2026-08-25');
 check('carries the template amount', aug[0].amount, 320000);
 check('is traceable back to its template', aug[0].templateId, 'it1');
-check('october picks up the quarterly rent too', Store.generateIncome('2026-10'), 2);
+check('october picks up the quarterly rent too', generateIncome('2026-10'), 2);
 
 console.log('\nautomatic catch-up:');
 // Every template starts unswept, so the first sweep has months to fill.
-check('the first sweep adds entries', Store.catchUp().total > 0, true);
-check('sweeping again adds nothing', Store.catchUp().total, 0);
+check('the first sweep adds entries', catchUp().total > 0, true);
+check('sweeping again adds nothing', catchUp().total, 0);
 check('every template is marked swept to the current month',
-  [...Store.state.incomeTemplates, ...Store.state.billTemplates]
-    .every((t) => t.generatedThrough === Store.currentPeriod()), true);
+  [...snapshot().incomeTemplates, ...snapshot().billTemplates]
+    .every((t) => t.generatedThrough === currentPeriod()), true);
 // The marker is what stops a row you deleted on purpose reappearing.
-const doomed = Store.state.income.filter((r) => r.templateId === 'it1').pop()!;
-Store.remove('income', doomed.id);
-check('a deleted generated entry stays deleted', Store.catchUp().total, 0);
-check('and is really gone', Store.state.income.some((r) => r.id === doomed.id), false);
+const doomed = snapshot().income.filter((r) => r.templateId === 'it1').pop()!;
+remove('income', doomed.id);
+check('a deleted generated entry stays deleted', catchUp().total, 0);
+check('and is really gone', snapshot().income.some((r) => r.id === doomed.id), false);
 // Asking for a month explicitly still works after the sweep has passed it.
-check('the manual button can refill that month', Store.generateIncome(Store.periodOf(doomed.date)), 1);
+check('the manual button can refill that month', generateIncome(periodOf(doomed.date)), 1);
 
 console.log('\nfrequencies:');
 const occurs = (frequency: Frequency, anchor: Period, period: Period): boolean =>
-  Store.occursIn({ active: true, frequency, anchor }, period);
+  occursIn({ active: true, frequency, anchor }, period);
 check('monthly occurs every month', [occurs('Monthly', '2026-01', '2026-07'), occurs('Monthly', '2026-01', '2026-08')], [true, true]);
 check('quarterly: anchor, +3, not +1', ['2026-07', '2026-10', '2026-08'].map((p) => occurs('Quarterly', '2026-07', p)), [true, true, false]);
 check('half-yearly: anchor, +6, not +3', ['2026-03', '2026-09', '2026-06'].map((p) => occurs('Half-yearly', '2026-03', p)), [true, true, false]);
@@ -142,97 +162,97 @@ check('yearly: anchor and +12 only', ['2026-04', '2027-04', '2026-10'].map((p) =
 check('bi-monthly: every other month', ['2026-02', '2026-04', '2026-03'].map((p) => occurs('Bi-monthly', '2026-02', p)), [true, true, false]);
 check('one-off: anchor month only', ['2026-05', '2026-06'].map((p) => occurs('One-off', '2026-05', p)), [true, false]);
 check('nothing occurs before its anchor', occurs('Quarterly', '2026-07', '2026-04'), false);
-check('paused templates never occur', Store.occursIn({ active: false, frequency: 'Monthly' }, '2026-07'), false);
+check('paused templates never occur', occursIn({ active: false, frequency: 'Monthly' }, '2026-07'), false);
 
 console.log('\nbill normalization (edit path must not desync status/period):');
-const nb = (bill: Partial<Bill>) => Store.normalizeBill(bill, '2026-07');
+const nb = (bill: Partial<Bill>) => normalizeBill(bill, '2026-07');
 check('entering a paid date marks it paid', nb({ dueDate: '2026-07-05', paidDate: '2026-07-04', status: 'unpaid' }).status, 'paid');
 check('clearing the paid date marks it unpaid', nb({ dueDate: '2026-07-05', paidDate: '', status: 'paid' }).status, 'unpaid');
 check('moving the due date refiles the period', nb({ dueDate: '2026-09-05', paidDate: '', period: '2026-07' }).period, '2026-09');
 check('a missing due date falls back to the given period', nb({ dueDate: '', paidDate: '' }).period, '2026-07');
-check('a normalized paid bill is not overdue', Store.billIsOverdue(nb({ dueDate: '2020-01-01', paidDate: '2020-01-01' })), false);
+check('a normalized paid bill is not overdue', billIsOverdue(nb({ dueDate: '2020-01-01', paidDate: '2020-01-01' })), false);
 
 console.log('\nrestore refuses non-backups (must not wipe data):');
-const before = JSON.stringify(Store.state);
+const before = JSON.stringify(snapshot());
 const rejects = (label: string, text: string): void => {
   let threw = false;
-  try { Store.importJSON(text); } catch { threw = true; }
+  try { importJSON(text); } catch { threw = true; }
   check(label + ' rejected', threw, true);
-  check(label + ' left data untouched', JSON.stringify(Store.state) === before, true);
+  check(label + ' left data untouched', JSON.stringify(snapshot()) === before, true);
 };
 rejects('an array', '[1,2,3]');
 rejects('an empty object', '{}');
 rejects("another app's export", '{"users":[],"settings":{"theme":"dark"}}');
 rejects('a bare string', '"hello"');
 rejects('null', 'null');
-check('a real backup is accepted', Store.importJSON(before).income, Store.state.income.length);
+check('a real backup is accepted', importJSON(before).income, snapshot().income.length);
 
 console.log('\nmonthly equivalent:');
-check('monthly 85.00 -> 85.00/mo', Store.monthlyEquivalent({ frequency: 'Monthly', expected: 8500 }), 8500);
-check('quarterly 60.00 -> 20.00/mo', Store.monthlyEquivalent({ frequency: 'Quarterly', expected: 6000 }), 2000);
-check('yearly 600.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Yearly', expected: 60000 }), 5000);
-check('half-yearly 300.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Half-yearly', expected: 30000 }), 5000);
-check('one-off counts as 0/mo', Store.monthlyEquivalent({ frequency: 'One-off', expected: 50000 }), 0);
+check('monthly 85.00 -> 85.00/mo', monthlyEquivalent({ frequency: 'Monthly', expected: 8500 }), 8500);
+check('quarterly 60.00 -> 20.00/mo', monthlyEquivalent({ frequency: 'Quarterly', expected: 6000 }), 2000);
+check('yearly 600.00 -> 50.00/mo', monthlyEquivalent({ frequency: 'Yearly', expected: 60000 }), 5000);
+check('half-yearly 300.00 -> 50.00/mo', monthlyEquivalent({ frequency: 'Half-yearly', expected: 30000 }), 5000);
+check('one-off counts as 0/mo', monthlyEquivalent({ frequency: 'One-off', expected: 50000 }), 0);
 
 /* ---------------- accounts carry every flow, not just movements ---------- */
 console.log('\naccounts as real balances:');
 const base = 100000 + 50000 + 60000 - 15000;
-check('starting balance', Store.accountBalance(accId), base);
+check('starting balance', accountBalance(snapshot(), accId), base);
 
-Store.upsert('income', { id: 'i9', date: '2026-07-05', source: 'Bonus', category: 'Bonus', amount: 100000, accountId: accId, method: 'Bank Transfer', notes: '' });
-check('income raises the account it was paid into', Store.accountBalance(accId), base + 100000);
+upsert('income', { id: 'i9', date: '2026-07-05', source: 'Bonus', category: 'Bonus', amount: 100000, accountId: accId, method: 'Bank Transfer', notes: '' });
+check('income raises the account it was paid into', accountBalance(snapshot(), accId), base + 100000);
 
-Store.upsert('purchases', { id: 'p9', date: '2026-07-06', item: 'Shoes', category: 'Clothing', amount: 20000, accountId: accId, method: 'Card', notes: '' });
-check('a purchase lowers it', Store.accountBalance(accId), base + 100000 - 20000);
+upsert('purchases', { id: 'p9', date: '2026-07-06', item: 'Shoes', category: 'Clothing', amount: 20000, accountId: accId, method: 'Card', notes: '' });
+check('a purchase lowers it', accountBalance(snapshot(), accId), base + 100000 - 20000);
 
-Store.upsert('bills', { id: 'b9', name: 'Gym', category: 'Subscriptions', period: '2026-07', dueDate: '2026-07-20', amount: 5000, accountId: accId, status: 'unpaid', paidDate: '' });
-check('an unpaid bill is a commitment, not a withdrawal', Store.accountBalance(accId), base + 100000 - 20000);
-Store.upsert('bills', { id: 'b9', status: 'paid', paidDate: '2026-07-20' });
-check('paying it takes the money out', Store.accountBalance(accId), base + 100000 - 20000 - 5000);
+upsert('bills', { id: 'b9', name: 'Gym', category: 'Subscriptions', period: '2026-07', dueDate: '2026-07-20', amount: 5000, accountId: accId, status: 'unpaid', paidDate: '' });
+check('an unpaid bill is a commitment, not a withdrawal', accountBalance(snapshot(), accId), base + 100000 - 20000);
+upsert('bills', { id: 'b9', status: 'paid', paidDate: '2026-07-20' });
+check('paying it takes the money out', accountBalance(snapshot(), accId), base + 100000 - 20000 - 5000);
 
-Store.upsert('accounts', { id: 'acc_visa', name: 'Visa', type: 'Current Account', opening: 200000, target: 0, notes: '' });
-Store.upsert('savingsTx', { id: 's9', date: '2026-07-25', direction: 'transfer', fromAccountId: 'acc_visa', accountId: 'acc_holiday', amount: 40000, notes: '' });
-check('a transfer leaves the account it came from', Store.accountBalance('acc_visa'), 200000 - 40000);
-check('and lands in the one it went to', Store.accountBalance('acc_holiday'), 25000 + 40000);
-check('card to pot counts as saving', Store.summary('2026-07').savedIn, 60000 + 25000 + 40000);
+upsert('accounts', { id: 'acc_visa', name: 'Visa', type: 'Current Account', opening: 200000, target: 0, notes: '' });
+upsert('savingsTx', { id: 's9', date: '2026-07-25', direction: 'transfer', fromAccountId: 'acc_visa', accountId: 'acc_holiday', amount: 40000, notes: '' });
+check('a transfer leaves the account it came from', accountBalance(snapshot(), 'acc_visa'), 200000 - 40000);
+check('and lands in the one it went to', accountBalance(snapshot(), 'acc_holiday'), 25000 + 40000);
+check('card to pot counts as saving', summary(snapshot(), '2026-07').savedIn, 60000 + 25000 + 40000);
 
-Store.upsert('savingsTx', { id: 's10', date: '2026-07-26', direction: 'transfer', fromAccountId: accId, accountId: 'acc_holiday', amount: 10000, notes: '' });
-check('pot to pot is not new saving', Store.summary('2026-07').savedIn, 60000 + 25000 + 40000);
+upsert('savingsTx', { id: 's10', date: '2026-07-26', direction: 'transfer', fromAccountId: accId, accountId: 'acc_holiday', amount: 10000, notes: '' });
+check('pot to pot is not new saving', summary(snapshot(), '2026-07').savedIn, 60000 + 25000 + 40000);
 
 /* ---------------- gold ---------------- */
 console.log('\ngold:');
 // One troy ounce is 31.1034768 g, so at $3110.34768/oz a gram is exactly $100;
 // at 10 pounds to the dollar that is E£1000.00 a gram.
-check('spot to price per gram', Store.goldGramFromSpot(3110.34768, 10), 100000);
-Store.recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
-check('one snapshot stored', Store.state.goldPrices.length, 1);
-Store.recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
-check('a second reading the same day replaces it', Store.state.goldPrices.length, 1);
-check('the shop premium starts at 2%', Store.state.settings.goldPremium, 2);
-check('which lifts the bourse price', Store.goldPricePerGram(24), 102000);
+check('spot to price per gram', goldGramFromSpot(3110.34768, 10), 100000);
+recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
+check('one snapshot stored', snapshot().goldPrices.length, 1);
+recordGoldPrice({ date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, source: 'test' });
+check('a second reading the same day replaces it', snapshot().goldPrices.length, 1);
+check('the shop premium starts at 2%', snapshot().settings.goldPremium, 2);
+check('which lifts the bourse price', goldPricePerGram(snapshot(), 24), 102000);
 
-Store.state.settings.goldPremium = 0;
-check('24k is the whole price', Store.goldPricePerGram(24), 100000);
-check('21k is 21 parts of 24', Store.goldPricePerGram(21), 87500);
-check('18k is three quarters', Store.goldPricePerGram(18), 75000);
+updateSettings({ goldPremium: 0 });
+check('24k is the whole price', goldPricePerGram(snapshot(), 24), 100000);
+check('21k is 21 parts of 24', goldPricePerGram(snapshot(), 21), 87500);
+check('18k is three quarters', goldPricePerGram(snapshot(), 18), 75000);
 
-Store.state.settings.goldPremium = 5;
-check('a shop premium lifts every karat', Store.goldPricePerGram(21), 91875);
-Store.state.settings.goldManualPrice = 200000;
-check('your own price is used exactly as typed', Store.goldPricePerGram(24), 200000);
-check('and still splits by karat', Store.goldPricePerGram(21), 175000);
-Store.state.settings.goldManualPrice = 0;
-Store.state.settings.goldPremium = 0;
+updateSettings({ goldPremium: 5 });
+check('a shop premium lifts every karat', goldPricePerGram(snapshot(), 21), 91875);
+updateSettings({ goldManualPrice: 200000 });
+check('your own price is used exactly as typed', goldPricePerGram(snapshot(), 24), 200000);
+check('and still splits by karat', goldPricePerGram(snapshot(), 21), 175000);
+updateSettings({ goldManualPrice: 0 });
+updateSettings({ goldPremium: 0 });
 
-Store.upsert('gold', { id: 'g1', date: '2026-07-10', direction: 'buy', karat: 21, grams: 10, amount: 800000, accountId: 'acc_visa', dealer: 'Souq', notes: '' });
-Store.upsert('gold', { id: 'g2', date: '2026-07-20', direction: 'sell', karat: 21, grams: 2, amount: 180000, accountId: 'acc_visa', dealer: '', notes: '' });
-check('grams held net off sales', Store.goldHoldings(), [{ karat: 21, grams: 8, value: 8 * 87500 }]);
-check('pure gold equivalent', Math.round(Store.goldSummary().pure * 1000) / 1000, 7);
-check('worth today', Store.goldValue(), 700000);
-check('what it cost, net of the sale', Store.goldInvested(), 800000 - 180000);
-check('gain', Store.goldSummary().gain, 700000 - 620000);
+upsert('gold', { id: 'g1', date: '2026-07-10', direction: 'buy', karat: 21, grams: 10, amount: 800000, accountId: 'acc_visa', dealer: 'Souq', notes: '' });
+upsert('gold', { id: 'g2', date: '2026-07-20', direction: 'sell', karat: 21, grams: 2, amount: 180000, accountId: 'acc_visa', dealer: '', notes: '' });
+check('grams held net off sales', goldHoldings(snapshot()), [{ karat: 21, grams: 8, value: 8 * 87500 }]);
+check('pure gold equivalent', Math.round(goldSummary(snapshot()).pure * 1000) / 1000, 7);
+check('worth today', goldValue(snapshot()), 700000);
+check('what it cost, net of the sale', goldInvested(snapshot()), 800000 - 180000);
+check('gain', goldSummary(snapshot()).gain, 700000 - 620000);
 check('buying gold takes money out of the account that paid',
-  Store.accountBalance('acc_visa'), 200000 - 40000 - 800000 + 180000);
+  accountBalance(snapshot(), 'acc_visa'), 200000 - 40000 - 800000 + 180000);
 
 /* ---------------- the date field's parser ---------------- */
 console.log('\ndate parsing (the native picker is not used):');
@@ -254,15 +274,15 @@ check('display is dd/mm/yyyy', DatePicker.display('2026-08-05'), '05/08/2026');
 // Roll back everything generated above so the export assertions below run
 // against the seed set. The price history is deliberately kept: it proves the
 // Gold sheet carries a series even when no gold is held.
-Store.state.bills = Store.state.bills.filter((b) => ['b1', 'b2', 'b3', 'b4'].includes(b.id));
-Store.state.income = Store.state.income.filter((r) => ['i1', 'i2', 'i3'].includes(r.id));
-Store.state.purchases = Store.state.purchases.filter((r) => ['p1', 'p2'].includes(r.id));
-Store.state.accounts = Store.state.accounts.filter((a) => [accId, 'acc_holiday'].includes(a.id));
-Store.state.savingsTx = Store.state.savingsTx.filter((t) => ['s1', 's2', 's3', 's4'].includes(t.id));
-Store.state.gold = [];
+keepOnly('bills', snapshot().bills.filter((b) => ['b1', 'b2', 'b3', 'b4'].includes(b.id)));
+keepOnly('income', snapshot().income.filter((r) => ['i1', 'i2', 'i3'].includes(r.id)));
+keepOnly('purchases', snapshot().purchases.filter((r) => ['p1', 'p2'].includes(r.id)));
+keepOnly('accounts', snapshot().accounts.filter((a) => [accId, 'acc_holiday'].includes(a.id)));
+keepOnly('savingsTx', snapshot().savingsTx.filter((t) => ['s1', 's2', 's3', 's4'].includes(t.id)));
+keepOnly('gold', []);
 
 /* ---------------- build + parse ---------------- */
-const bytes = build({ type: 'all' });
+const bytes = build(snapshot(), { type: 'all' });
 const file = join(outDir, filename({ type: 'all' }));
 writeFileSync(file, bytes);
 console.log(`\nwrote ${file} (${bytes.length} bytes)`);
@@ -347,9 +367,9 @@ const acc = grid('Savings Accounts');
 check('emergency balance in sheet', acc[1][5], 1950);
 check('progress percent format', (wb.Sheets['Savings Accounts'].H2.z || '').includes('%'), true);
 
-const summary = grid('Summary');
-check('summary title', summary[0][0], 'Income & Spending Report');
-check('summary scope', summary[1][0], 'All time');
+const summarySheet = grid('Summary');
+check('summary title', summarySheet[0][0], 'Income & Spending Report');
+check('summary scope', summarySheet[1][0], 'All time');
 check('cross-sheet income formula', wb.Sheets.Summary.B6.f, 'SUM(Income!D2:D4)');
 check('cross-sheet savings formula quotes the sheet name', wb.Sheets.Summary.B24.f, "SUM('Savings Accounts'!F2:F3)");
 check('summary recurring income per month', wb.Sheets.Summary.B15.v, 3500);
@@ -360,7 +380,7 @@ check('summary outstanding cached', wb.Sheets.Summary.B9.v, 96.19);
 check('currency format uses £', (wb.Sheets.Summary.B6.z || '').includes('£'), true);
 
 /* month-scoped export */
-const monthBytes = build({ type: 'month', period: '2026-07' });
+const monthBytes = build(snapshot(), { type: 'month', period: '2026-07' });
 const monthFile = join(outDir, filename({ type: 'month', period: '2026-07' }));
 writeFileSync(monthFile, monthBytes);
 const wb2 = XLSX.read(readFileSync(monthFile), { type: 'buffer', cellNF: true });

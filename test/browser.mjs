@@ -54,8 +54,15 @@ try {
   tab.on('pageerror', (e) => errors.push(String(e)));
   tab.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
+  /* The app puts its route in the hash, so once it has run the URL is
+     `…income-tracker.html#/income/2026-07`. Navigating from that back to the
+     bare file:// URL differs only by fragment, which the browser treats as a
+     same-document navigation: nothing reloads, and the persistence checks below
+     would pass without SQLite ever having been re-opened. The explicit reload
+     is what makes them mean anything; the probe below is what proves it. */
   const open = async () => {
     await tab.goto(page, { waitUntil: 'load' });
+    await tab.reload({ waitUntil: 'load' });
     await tab.waitForSelector('.topbar', { timeout: 30000 });
   };
 
@@ -67,6 +74,34 @@ try {
     await tab.evaluate(() => globalThis.__app.backend()), 'indexeddb');
   check('every tab renders',
     await tab.evaluate(() => document.querySelectorAll('.tab').length), 7);
+
+  /* ---------------- hash routing ---------------- */
+  console.log('\nhash routing (reload and back/forward):');
+  const selectedTab = () => tab.evaluate(() =>
+    [...document.querySelectorAll('.tab')].find((b) => b.getAttribute('aria-selected') === 'true')?.textContent);
+  const settle = () => tab.evaluate(() => new Promise((r) => setTimeout(r, 100)));
+
+  await tab.evaluate(() => globalThis.__app.goTab('gold'));
+  await settle();
+  check('the tab is in the address bar', /#\/gold\/\d{4}-\d{2}$/.test(tab.url()), true);
+
+  await tab.evaluate(() => [...document.querySelectorAll('.period-nav button')]
+    .find((b) => b.getAttribute('aria-label') === 'Previous month').click());
+  await settle();
+  const stepped = tab.url();
+  check('and so is the month', /#\/gold\/\d{4}-\d{2}$/.test(stepped), true);
+
+  await tab.reload({ waitUntil: 'load' });
+  await tab.waitForSelector('.topbar');
+  check('a reload lands on the same tab', await selectedTab(), 'Gold');
+  check('in the same month', tab.url(), stepped);
+
+  await tab.goBack({ waitUntil: 'load' });
+  await settle();
+  check('back steps to the month before it', tab.url() !== stepped, true);
+  await tab.goForward({ waitUntil: 'load' });
+  await settle();
+  check('and forward returns', tab.url(), stepped);
 
   // Start from a clean database, whatever a previous run left behind.
   await tab.evaluate(() => globalThis.__app.clearAll());
@@ -113,7 +148,10 @@ try {
 
   /* ---------------- persistence across a reload ---------------- */
   console.log('\npersistence (SQLite -> IndexedDB -> reload):');
+  await tab.evaluate(() => { globalThis.__probe = 'survived'; });
   await open();
+  check('open() really reloaded the page, hash routing notwithstanding',
+    await tab.evaluate(() => globalThis.__probe), undefined);
   const after = await tab.evaluate(() => globalThis.__app.state().income[0]);
   check('the entry is still there after a reload', !!after, true);
   check('and its text is unchanged', after?.source, 'Ünïcode Ltd 💷');
@@ -124,6 +162,7 @@ try {
   /* ---------------- the date field's own keyboard behaviour ---------------- */
   console.log('\ndate field:');
   await tab.evaluate(() => globalThis.__app.goTab('purchases'));
+  await tab.waitForSelector('form input[name="item"]');
   await tab.evaluate(() => {
     const btn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Add purchase');
     if (btn) btn.click();
@@ -142,6 +181,145 @@ try {
     await new Promise((r) => setTimeout(r, 100));
     return !!document.querySelector('.dp-pop');
   }), false);
+
+  /* ---------------- a half-typed form survives a redraw ---------------- */
+
+  /* The trap the whole form design is arranged around. If a field renders
+     `value={initial}` instead of `defaultValue`, Preact writes that initial
+     value back on every re-render and eats what was typed. The rest of this
+     suite cannot see it, because it fills a form and submits inside one tick.
+     Here the write comes from somewhere else entirely, which is what happens in
+     real use — the gold price arriving after boot does exactly this. */
+  console.log('\na half-typed form survives a write from elsewhere:');
+  const optionCount = () => tab.evaluate(() =>
+    document.querySelectorAll('form select[name="accountId"] option').length);
+
+  const optionsBefore = await optionCount();
+  await tab.evaluate(() => { document.querySelector('form input[name="item"]').value = 'half typed'; });
+  await tab.evaluate(() => globalThis.__app.upsert('accounts', {
+    name: 'Distraction', type: 'Current Account', opening: 0, target: 0, notes: ''
+  }));
+  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+
+  // Without this the check above could pass by the form never redrawing at all.
+  check('the open form really did redraw', (await optionCount()) > optionsBefore, true);
+  check('and the half-typed text is still there',
+    await tab.evaluate(() => document.querySelector('form input[name="item"]').value), 'half typed');
+  check('as is the date the user picked',
+    await tab.evaluate(() => document.querySelector('.dp-text').value !== ''), true);
+
+  /* ---------------- inline editing keeps the field ---------------- */
+
+  /* The regression the rewrite exists to fix. The old draw() cleared #app and
+     rebuilt it on every write, so committing an inline amount destroyed the
+     input being typed in and threw the page back up to the top. */
+  console.log('\nediting a bill amount in place:');
+  await tab.evaluate(() => globalThis.__app.upsert('bills', {
+    id: 'bil_t', templateId: null, name: 'Electricity', category: 'Electricity', provider: '',
+    dueDate: '2026-07-20', amount: 0, accountId: 'acc_t', units: null, unitRate: null,
+    paidDate: '', method: '', notes: ''
+  }));
+  await tab.evaluate(() => globalThis.__app.goTab('bills'));
+  await tab.evaluate(() => globalThis.__app.goPeriod('2026-07'));
+  await tab.waitForSelector('input[aria-label="Electricity amount"]');
+
+  const inlineEdit = await tab.evaluate(async () => {
+    const field = document.querySelector('input[aria-label="Electricity amount"]');
+    field.focus();
+    field.value = '1,250.75';
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    const after = document.querySelector('input[aria-label="Electricity amount"]');
+    return {
+      stored: globalThis.__app.state().bills.find((b) => b.id === 'bil_t').amount,
+      sameNode: after === field,
+      stillFocused: document.activeElement === field,
+      scroll: window.scrollY
+    };
+  });
+  check('the amount is stored as cents', inlineEdit.stored, 125075);
+  check('the input was not torn down and rebuilt', inlineEdit.sameNode, true);
+  check('focus stayed in the field', inlineEdit.stillFocused, true);
+  check('and the page did not jump', inlineEdit.scroll, 0);
+
+  /* ---------------- the date field inside a modal dialog ---------------- */
+
+  /* Every editor's date field lives inside a <dialog> opened with showModal(),
+     which is the awkward case: the dialog paints in the top layer and
+     .dialog-body is its own scroll box. The old picker appended its calendar to
+     the dialog by hand for exactly that reason; this one relies on position:
+     fixed inside the dialog giving both. The hit test is the check that matters
+     — a calendar painting *under* the backdrop is present, sized and unusable. */
+  console.log('\nthe calendar inside an editor dialog:');
+  await tab.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Edit').click());
+  await settle();
+
+  const inDialog = await tab.evaluate(async () => {
+    const input = document.querySelector('dialog[open] .dp-text');
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    const pop = document.querySelector('.dp-pop');
+    if (!pop) return { open: false };
+    const b = pop.getBoundingClientRect();
+    return {
+      open: true,
+      onScreen: b.width > 0 && b.height > 0 && b.top >= 0 && b.bottom <= window.innerHeight,
+      // Painted at its own centre, i.e. above the dialog's backdrop.
+      onTop: pop.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2))
+    };
+  });
+  check('it opens', inDialog.open, true);
+  check('it is placed on screen', inDialog.onScreen, true);
+  check('and it is not behind the backdrop', inDialog.onTop, true);
+
+  /* Typing a date and then clicking away while the calendar is open must still
+     commit it, or the box goes on showing a date the form would not save. */
+  const committed = await tab.evaluate(async () => {
+    const form = document.querySelector('dialog[open] form');
+    const input = form.querySelector('.dp-text');
+    input.value = '23/07/2026';
+    const elsewhere = form.querySelector('input[name="amount"]');
+    elsewhere.focus();
+    input.dispatchEvent(new Event('blur'));
+    await new Promise((r) => setTimeout(r, 150));
+    return { shown: input.value, stored: form.elements.namedItem('dueDate').value };
+  });
+  check('typing then leaving the field commits what was typed', committed.stored, '2026-07-23');
+  check('and the box agrees with it', committed.shown, '23/07/2026');
+  await tab.evaluate(() => document.querySelector('dialog[open]')?.close());
+  await settle();
+
+  /* ---------------- every tab renders against real data ---------------- */
+
+  /* The checks above enter data through Income and Purchases and edit a bill.
+     Dashboard, Accounts, Gold and Settings are otherwise never rendered at all
+     here, and a component that throws on its first render takes the whole page
+     with it — so each one is opened once with records on screen. */
+  console.log('\nevery tab draws with data in it:');
+  await tab.evaluate(() => {
+    const a = globalThis.__app;
+    a.upsert('savingsTx', { id: 'sav_t', date: '2026-07-07', accountId: 'acc_t', fromAccountId: '', direction: 'in', amount: 50000, notes: '' });
+    a.upsert('goldPrices', { id: 'gpr_2026-07-29', date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, egpPerGram24: 100000, source: 'test', fetchedAt: '' });
+    a.upsert('goldPrices', { id: 'gpr_2026-07-30', date: '2026-07-30', usdPerOz: 3200, egpPerUsd: 10, egpPerGram24: 102890, source: 'test', fetchedAt: '' });
+    a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
+  });
+
+  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'gold', 'settings']) {
+    await tab.evaluate((t) => globalThis.__app.goTab(t), id);
+    await settle();
+    check(`${id} renders something`, await tab.evaluate(() =>
+      document.querySelectorAll('main .sheet, main .figure').length > 0), true);
+  }
+
+  // The gold sparkline is the one piece of SVG the app draws by hand.
+  await tab.evaluate(() => globalThis.__app.goTab('gold'));
+  await settle();
+  check('the price sparkline is drawn',
+    await tab.evaluate(() => !!document.querySelector('svg.spark')), true);
+
+  await tab.evaluate(() => globalThis.__app.goTab('purchases'));
+  await settle();
 
   /* ---------------- the browser-only export path ---------------- */
   console.log('\nexport from the browser (Blob + TextEncoder, never hit in Node):');

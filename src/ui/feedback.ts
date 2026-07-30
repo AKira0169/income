@@ -1,22 +1,24 @@
-/* ui/feedback.ts — telling the user what just happened, and handing them files. */
+/* ui/feedback.ts — telling the user what just happened, and handing them files.
 
-import { el } from '../dom.ts';
-import { periodLabel, periodOf } from '../store.ts';
-import type { IsoDate } from '../types.ts';
-import { view } from './view.ts';
+   The three things a screen needs that are not markup: a toast, a confirm, and
+   a download. The toast itself is a component; this is the door to it. */
 
-const TOAST_MS = 3000;
+import { periodOf } from '../domain/period.ts';
+import { periodLabel } from '../domain/period.ts';
+import { snapshot } from '../state/app.ts';
+import { goPeriod, period as routePeriod } from '../state/route.ts';
+import type { IsoDate } from '../domain/types.ts';
+import { toast } from './components/Toast.tsx';
 
-export function toast(message: string): void {
-  document.querySelector('.toast')?.remove();
-  const node = el('div', { class: 'toast', role: 'status', text: message });
-  document.body.appendChild(node);
-  setTimeout(() => node.remove(), TOAST_MS);
-}
+export { toast } from './components/Toast.tsx';
 
+/* A Blob URL and a click on a link the user never sees. There is no server
+   here, so this is the only way a file leaves the page. */
 export function download(data: BlobPart, filename: string, mime: string): void {
   const url = URL.createObjectURL(new Blob([data], { type: mime }));
-  const link = el('a', { href: url, download: filename });
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -31,9 +33,10 @@ export function confirmDelete(what: string): boolean {
    it was saved, which reads as "it was not recorded". Follow it. */
 export function followDate(dateISO: IsoDate | '' | null | undefined, message: string): void {
   const period = periodOf(dateISO);
-  if (period && period !== view.period) {
-    view.period = period;
-    toast(`${message} · showing ${periodLabel(period)}`);
+  if (period && period !== routePeriod.peek()) {
+    // Through the route, so the address bar and the topbar move with it.
+    goPeriod(period);
+    toast(`${message} · showing ${periodLabel(period, snapshot().settings.locale)}`);
     return;
   }
   toast(message);

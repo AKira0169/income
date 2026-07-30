@@ -10,5 +10,5 @@
     // installed only as a throwaway), so indexing it stays loose here.
     "noImplicitAny": false
   },
-  "include": ["test/**/*.ts", "build.mjs"]
+  "include": ["test/**/*.ts", "build.mjs", "dev.mjs"]
 }

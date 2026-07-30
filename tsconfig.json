@@ -7,6 +7,12 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
 
+    /* Preact's automatic runtime: components never import `h` themselves, and
+       esbuild is told the same two things so bundle and typecheck agree. JSX is
+       not a TypeScript emit feature, so erasableSyntaxOnly below is unaffected. */
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+
     "strict": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
@@ -28,5 +34,5 @@
        inside the built page. The test suite gets them via tsconfig.test.json. */
     "types": []
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
