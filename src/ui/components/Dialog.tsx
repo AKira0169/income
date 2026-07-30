@@ -24,10 +24,12 @@ export interface EditorProps {
   state: AppState;
   onSave: (data: FormData) => void;
   onInvalid?: () => void;
+  /** Any control changing — for a form whose shape depends on its own answers. */
+  onChange?: (e: Event) => void;
   onClose: () => void;
 }
 
-export function Editor({ title, fields, record, state, onSave, onInvalid, onClose }: EditorProps) {
+export function Editor({ title, fields, record, state, onSave, onInvalid, onChange, onClose }: EditorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useLayoutEffect(() => {
@@ -43,6 +45,7 @@ export function Editor({ title, fields, record, state, onSave, onInvalid, onClos
     <dialog ref={dialog} onClose={onClose} onCancel={onClose}>
       <form
         method="dialog"
+        onChange={onChange}
         onSubmit={(e: Event) => {
           e.preventDefault();
           const data = readForm(e.currentTarget as HTMLFormElement, fields);

@@ -15,9 +15,10 @@ import { Topbar } from './Topbar.tsx';
 import { view } from './view.ts';
 import type { BootOutcome } from '../state/app.ts';
 
+import { Accounts } from './tabs/Accounts.tsx';
 import { Income } from './tabs/Income.tsx';
 import { Purchases } from './tabs/Purchases.tsx';
-import { renderAccounts } from './tabs/accounts.ts';
+
 import { renderBills } from './tabs/bills.ts';
 import { renderDashboard } from './tabs/dashboard.ts';
 import { renderGold } from './tabs/gold.ts';
@@ -27,13 +28,13 @@ import { renderSettings } from './tabs/settings.ts';
     through <LegacyTab/>; this list is the whole record of how far the port is. */
 const PORTED: Partial<Record<TabId, () => preact.JSX.Element>> = {
   income: Income,
-  purchases: Purchases
+  purchases: Purchases,
+  savings: Accounts
 };
 
 const LEGACY: Partial<Record<TabId, () => HTMLElement>> = {
   dashboard: renderDashboard,
   bills: renderBills,
-  savings: renderAccounts,
   gold: renderGold,
   settings: renderSettings
 };

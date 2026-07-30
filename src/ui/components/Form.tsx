@@ -86,11 +86,15 @@ export interface FormProps extends FormGridProps {
   onSubmit: (data: FormData) => void;
   /** Said when a required field is empty. */
   onInvalid?: () => void;
+  /** Any control changing. For a form whose shape depends on one of its own
+      answers — "from account" only means anything for a transfer. */
+  onChange?: (e: Event) => void;
 }
 
-export function Form({ fields, record, state, onSubmit, onInvalid, children }: FormProps) {
+export function Form({ fields, record, state, onSubmit, onInvalid, onChange, children }: FormProps) {
   return (
     <form
+      onChange={onChange}
       onSubmit={(e: Event) => {
         e.preventDefault();
         const data = readForm(e.currentTarget as HTMLFormElement, fields);

@@ -30,6 +30,8 @@ export interface AddSectionProps {
   state: AppState;
   onSubmit: (data: FormData) => void;
   onInvalid?: () => void;
+  /** Any control changing — for a form whose shape depends on its own answers. */
+  onChange?: (e: Event) => void;
   /** Shown in the head between the title and the button. */
   summary?: preact.ComponentChildren;
   /** Unfolded regardless — a screen with nothing on it yet has nothing to
@@ -38,7 +40,7 @@ export interface AddSectionProps {
 }
 
 export function AddSection({
-  title, addLabel, fields, state, onSubmit, onInvalid, summary, forceOpen
+  title, addLabel, fields, state, onSubmit, onInvalid, onChange, summary, forceOpen
 }: AddSectionProps) {
   const [asked, setAsked] = useState(false);
   /* Bumped after each save. It is the form's key, so the fields are remounted
@@ -62,7 +64,7 @@ export function AddSection({
       {open ? (
         <div class="disclosure-body">
           <Form
-            key={generation} fields={fields} state={state} onInvalid={onInvalid}
+            key={generation} fields={fields} state={state} onInvalid={onInvalid} onChange={onChange}
             onSubmit={(data) => { onSubmit(data); setGeneration(generation + 1); }}
           >
             <div class="btn-row" style="margin-top:16px">
