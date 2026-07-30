@@ -61,20 +61,48 @@
 
   /* ---------------------------------------------------------------- sheets */
 
+  /* The Recurring column is appended, not inserted: Amount stays in column D,
+     which the Summary sheet and the total below both address by letter. */
   function incomeSheet(records) {
-    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes'])];
+    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
-      rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '']);
+      rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
+        r.templateId ? 'Yes' : '']);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
-    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null]);
+    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null]);
     return {
       name: 'Income', freeze: 1,
-      autoFilter: sorted.length ? 'A1:F' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
+    };
+  }
+
+  function incomeTemplatesSheet() {
+    var templates = S.state.incomeTemplates;
+    var rows = [headerRow(['Source', 'Category', 'Frequency', 'Pay Day',
+      'Expected Amount', 'Income / Month', 'Method', 'Active', 'Notes'])];
+    templates.forEach(function (t) {
+      rows.push([t.source || '', t.category || '', t.frequency || 'Monthly',
+        { t: 'int', v: Number(t.payDay) || 1 }, money(t.expected),
+        money(S.monthlyEquivalent(t)), t.method || '',
+        t.active ? 'Yes' : 'No', t.notes || '']);
+    });
+    // As with bills: a yearly bonus is not a monthly income, so each cadence is
+    // spread over 12 months to make the sources comparable.
+    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
+    rows.push([]);
+    rows.push([bold('Active recurring income, per month'), null, null, null, null,
+      { t: 'money', v: perMonth / 100, s: 'moneyBold' }]);
+    rows.push([bold('Active recurring income, per year'), null, null, null, null,
+      { t: 'money', v: (perMonth * 12) / 100, s: 'moneyBold' }]);
+    return {
+      name: 'Recurring Income', freeze: 1,
+      cols: [{ w: 26 }, { w: 16 }, { w: 13 }, { w: 10 }, { w: 16 }, { w: 15 }, { w: 16 }, { w: 8 }, { w: 28 }],
+      rows: rows
     };
   }
 
@@ -350,6 +378,19 @@
     line('Net (income − spent)', { t: 'money', v: net / 100, s: 'moneyBold' });
     rows.push([]);
 
+    /* What is committed rather than what happened: the standing set-up, put on
+       a monthly footing so cadences are comparable. Independent of scope. */
+    var activeOnly = function (list) { return list.filter(function (t) { return t.active; }); };
+    var incomePerMonth = S.sum(activeOnly(st.incomeTemplates), S.monthlyEquivalent);
+    var billsPerMonth = S.sum(activeOnly(st.billTemplates), S.monthlyEquivalent);
+    rows.push([{ v: 'Recurring set-up, per month', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    line('Recurring income', { t: 'money', v: incomePerMonth / 100, s: 'moneyBold' },
+      S.plural(activeOnly(st.incomeTemplates).length, 'active source'));
+    line('Recurring bills', { t: 'money', v: billsPerMonth / 100, s: 'moneyBold' },
+      S.plural(activeOnly(st.billTemplates).length, 'active bill'));
+    line('Left over before purchases', { t: 'money', v: (incomePerMonth - billsPerMonth) / 100, s: 'moneyBold' });
+    rows.push([]);
+
     rows.push([{ v: 'Savings', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
     line('Paid into savings', { t: 'money', v: sheets.savingsTx._in / 100, s: 'money' });
     line('Withdrawn from savings', { t: 'money', v: sheets.savingsTx._out / 100, s: 'money' });
@@ -382,6 +423,7 @@
     var sel = scopeRecords(scope);
     var sheets = {
       income: incomeSheet(sel.income),
+      incomeTemplates: incomeTemplatesSheet(),
       bills: billsSheet(sel.bills),
       templates: templatesSheet(),
       purchases: purchasesSheet(sel.purchases),
@@ -396,7 +438,8 @@
       currency: S.state.settings.currencySymbol,
       sheets: [
         summarySheet(scope, sel, sheets),
-        sheets.income, sheets.bills, sheets.templates, sheets.purchases,
+        sheets.income, sheets.incomeTemplates,
+        sheets.bills, sheets.templates, sheets.purchases,
         sheets.utilities, sheets.accounts, sheets.savingsTx,
         sheets.monthly, sheets.categories
       ]

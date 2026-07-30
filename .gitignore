@@ -1,0 +1,8 @@
+# SheetJS is installed with --no-save as a throwaway test oracle
+node_modules/
+
+# workbooks written by the test suite
+.tmp/
+
+# snapshots from browser-driven checks
+.playwright-mcp/

@@ -178,6 +178,60 @@
     ]);
   }
 
+  /* The "set it once" panel, shared by income and bills. Recurring definitions
+     are edited rarely, so it stays folded away behind its own summary line. */
+  function recurringSection(cfg) {
+    var open = isOpen(cfg.key);
+    var templates = cfg.templates;
+    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
+    var form = open ? buildForm(cfg.fields, null) : null;
+
+    return el('section', { class: 'sheet' }, [
+      el('div', { class: 'sheet-head' }, [
+        el('h2', { text: cfg.title }),
+        el('span', {
+          class: 'muted spacer',
+          text: templates.length
+            ? S.plural(templates.length, cfg.noun) + ' · ' + money(perMonth) + ' a month'
+            : 'none set up yet'
+        }),
+        el('button', {
+          'aria-expanded': open ? 'true' : 'false',
+          text: open ? 'Hide' : (templates.length ? 'Show' : 'Set up'),
+          onclick: function () { toggle(cfg.key); }
+        })
+      ]),
+      open ? el('div', { class: 'sheet-body flush' }, [
+        templates.length ? table(cfg.headers, templates.map(cfg.row)) : null,
+        el('div', { class: 'disclosure-body' }, [
+          el('p', { class: 'muted', style: 'margin-top:0' }, cfg.hint),
+          el('form', {
+            onsubmit: function (e) {
+              e.preventDefault();
+              var data = form.read();
+              if (!data) { toast('Fill in the required fields'); return; }
+              // The month on screen is where this commitment starts; nothing is
+              // ever generated before it.
+              data.anchor = view.period;
+              data.generatedThrough = null;
+              S.upsert(cfg.collection, data);
+              var added = S.catchUp();
+              render();
+              toast(added.total
+                ? cfg.saved + ' · ' + S.plural(added.total, 'entry', 'entries') + ' added'
+                : cfg.saved);
+            }
+          }, [
+            form.node,
+            el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
+              el('button', { class: 'primary', type: 'submit', text: cfg.saveLabel })
+            ])
+          ])
+        ])
+      ]) : null
+    ]);
+  }
+
   function openEditor(title, fields, record, onSave, afterBuild) {
     var form = buildForm(fields, record);
     var dialog = el('dialog', {}, [
@@ -249,6 +303,16 @@
       { key: 'category', label: 'Category', type: 'select', options: S.PURCHASE_CATEGORIES, def: 'Groceries' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
       { key: 'method', label: 'Paid with', type: 'select', options: S.PAYMENT_METHODS, def: 'Card' },
+      { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
+    ],
+    incomeTemplate: [
+      { key: 'source', label: 'Source', type: 'text', placeholder: 'e.g. Acme Ltd — salary', required: true },
+      { key: 'category', label: 'Category', type: 'select', options: S.INCOME_CATEGORIES, def: 'Salary' },
+      { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
+      { key: 'payDay', label: 'Paid on day', type: 'number', min: 1, step: 1, placeholder: '28' },
+      { key: 'expected', label: 'Amount', type: 'money', required: true },
+      { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
+      { key: 'active', label: 'Active', type: 'checkbox', def: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
     template: [
@@ -457,17 +521,26 @@
     var period = view.period;
     var records = S.sortByDateDesc(S.incomeIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
+    var templates = S.state.incomeTemplates;
 
     return el('div', { class: 'stack' }, [
-      addSection('add-income', 'Income', 'Add income', FIELDS.income, function (data) {
+      addSection('add-income', 'One-off income', 'Add income', FIELDS.income, function (data) {
         S.upsert('income', data);
         toast('Income added');
-      }, !records.length),
+      }, !records.length && !templates.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
           el('h2', { text: S.periodLabel(period) }),
           el('span', { class: 'muted spacer', text: S.plural(records.length, 'entry', 'entries') }),
+          templates.length ? el('button', {
+            text: 'Generate from recurring',
+            onclick: function () {
+              var made = S.generateIncome(period);
+              render();
+              toast(made ? 'Added ' + S.plural(made, 'entry', 'entries') : 'Already up to date');
+            }
+          }) : null,
           el('span', { class: 'num', text: money(total) })
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
@@ -476,7 +549,12 @@
           records.length ? records.map(function (r) {
             return el('tr', {}, [
               el('td', { class: 'num', text: r.date }),
-              el('td', { text: r.source }),
+              el('td', {}, [
+                el('div', { text: r.source }),
+                // Generated rows are marked so you can tell what the app filled
+                // in from what you entered by hand.
+                r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
+              ]),
               el('td', { class: 'muted', text: r.category }),
               el('td', { class: 'num', text: money(r.amount) }),
               el('td', { class: 'muted', text: r.method || '—' }),
@@ -486,9 +564,45 @@
                 function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
               )
             ]);
-          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period), 'Add your salary, invoices, or any other money in.')]
+          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period),
+            templates.length ? 'Nothing is due from your recurring income this month.'
+              : 'Set your salary up once below and it will appear every month on its own.')]
         )])
-      ])
+      ]),
+
+      recurringSection({
+        key: 'recurring-income',
+        title: 'Recurring income',
+        noun: 'source',
+        collection: 'incomeTemplates',
+        fields: FIELDS.incomeTemplate,
+        saveLabel: 'Save recurring income',
+        saved: 'Recurring income saved',
+        hint: 'Set your salary — or any other regular payment — up once here. Each new month it is ' +
+          'entered for you automatically, and you only touch it if the figure changes.',
+        headers: [{ label: 'Source' }, { label: 'Category' }, { label: 'How often' },
+          { label: 'Paid on', num: true }, { label: 'Amount', num: true }, { label: 'Per month', num: true },
+          { label: 'Status' }, { label: '', actions: true }],
+        templates: templates,
+        row: function (t) {
+          return el('tr', {}, [
+            el('td', { text: t.source }),
+            el('td', { class: 'muted', text: t.category }),
+            el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
+            el('td', { class: 'num', text: 'day ' + (t.payDay || 1) }),
+            el('td', { class: 'num', text: money(t.expected) }),
+            el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
+            el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
+            rowActions(
+              function () {
+                openEditor('Edit recurring income', FIELDS.incomeTemplate, t,
+                  function (d) { S.upsert('incomeTemplates', d); });
+              },
+              function () { if (confirmDelete('recurring income')) { S.remove('incomeTemplates', t.id); render(); } }
+            )
+          ]);
+        }
+      })
     ]);
   }
 
@@ -568,8 +682,6 @@
     var total = S.sum(bills, function (b) { return b.amount; });
     var paid = S.sum(bills.filter(function (b) { return b.status === 'paid'; }), function (b) { return b.amount; });
     var templates = S.state.billTemplates;
-    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
-    var showRecurring = isOpen('recurring');
 
     return el('div', { class: 'stack' }, [
       /* This month's bills lead, because that is the monthly job. */
@@ -604,70 +716,42 @@
             { label: 'Units', num: true }, { label: 'Unit' }, { label: 'Status' }, { label: '', actions: true }],
           bills.length ? bills.map(billRow)
             : [emptyRow(8, 'No bills for ' + S.periodLabel(period),
-              templates.length ? 'Use "Generate from recurring" to create this month\'s bills.'
-                : 'Set up your recurring bills below — electricity, water, internet — then generate them each month.')]
+              templates.length ? 'Nothing is due from your recurring bills this month.'
+                : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
         )])
       ]),
 
-      /* Recurring definitions are set up rarely, so they stay folded. */
-      el('section', { class: 'sheet' }, [
-        el('div', { class: 'sheet-head' }, [
-          el('h2', { text: 'Recurring bills' }),
-          el('span', {
-            class: 'muted spacer',
-            text: templates.length ? S.plural(templates.length, 'bill') + ' · ' + money(perMonth) + ' a month' : 'none set up yet'
-          }),
-          el('button', {
-            'aria-expanded': showRecurring ? 'true' : 'false',
-            text: showRecurring ? 'Hide' : (templates.length ? 'Show' : 'Set up'),
-            onclick: function () { toggle('recurring'); }
-          })
-        ]),
-        showRecurring ? el('div', { class: 'sheet-body flush' }, [
-          templates.length ? table(
-            [{ label: 'Bill' }, { label: 'Category' }, { label: 'Provider' }, { label: 'How often' },
-              { label: 'Due day', num: true }, { label: 'Typical', num: true }, { label: 'Per month', num: true },
-              { label: 'Status' }, { label: '', actions: true }],
-            templates.map(function (t) {
-              return el('tr', {}, [
-                el('td', { text: t.name }),
-                el('td', { class: 'muted', text: t.category }),
-                el('td', { class: 'muted', text: t.provider || '—' }),
-                el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
-                el('td', { class: 'num', text: t.dueDay || 1 }),
-                el('td', { class: 'num', text: money(t.expected) }),
-                el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
-                el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
-                rowActions(
-                  function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
-                  function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
-                )
-              ]);
-            })
-          ) : null,
-          el('div', { class: 'disclosure-body' }, [
-            (function () {
-              var form = buildForm(FIELDS.template, null);
-              return el('form', {
-                onsubmit: function (e) {
-                  e.preventDefault();
-                  var data = form.read();
-                  if (!data) { toast('Fill in the required fields'); return; }
-                  data.anchor = view.period;
-                  S.upsert('billTemplates', data);
-                  render();
-                  toast('Recurring bill saved');
-                }
-              }, [
-                form.node,
-                el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
-                  el('button', { class: 'primary', type: 'submit', text: 'Save recurring bill' })
-                ])
-              ]);
-            }())
-          ])
-        ]) : null
-      ])
+      recurringSection({
+        key: 'recurring',
+        title: 'Recurring bills',
+        noun: 'bill',
+        collection: 'billTemplates',
+        fields: FIELDS.template,
+        saveLabel: 'Save recurring bill',
+        saved: 'Recurring bill saved',
+        hint: 'Set each bill up once here — what it is, how often, and the typical amount. Each new ' +
+          'month it appears above on its own; type in the real figure when the bill arrives.',
+        headers: [{ label: 'Bill' }, { label: 'Category' }, { label: 'Provider' }, { label: 'How often' },
+          { label: 'Due day', num: true }, { label: 'Typical', num: true }, { label: 'Per month', num: true },
+          { label: 'Status' }, { label: '', actions: true }],
+        templates: templates,
+        row: function (t) {
+          return el('tr', {}, [
+            el('td', { text: t.name }),
+            el('td', { class: 'muted', text: t.category }),
+            el('td', { class: 'muted', text: t.provider || '—' }),
+            el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
+            el('td', { class: 'num', text: t.dueDay || 1 }),
+            el('td', { class: 'num', text: money(t.expected) }),
+            el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
+            el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
+            rowActions(
+              function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
+              function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
+            )
+          ]);
+        }
+      })
     ]);
   }
 
@@ -878,6 +962,8 @@
     var code = el('input', { type: 'text', value: settings.currencyCode, maxlength: '5' });
     var locale = el('input', { type: 'text', value: settings.locale, placeholder: 'en-US' });
     var goal = el('input', { type: 'number', value: settings.savingsGoalRate, min: '0', max: '100', step: '1' });
+    var auto = el('input', { type: 'checkbox' });
+    auto.checked = settings.autoGenerate !== false;
 
     var restoreInput = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
     restoreInput.addEventListener('change', function () {
@@ -905,7 +991,9 @@
             settingRow('Currency symbol', symbol, 'Used on screen and in Excel'),
             settingRow('Currency code', code, 'e.g. USD, GBP, EUR, NGN'),
             settingRow('Number locale', locale, 'Controls digit grouping'),
-            settingRow('Savings goal', goal, '% of income you aim to save')
+            settingRow('Savings goal', goal, '% of income you aim to save'),
+            settingRow('Fill in recurring entries automatically', auto,
+              'Your recurring income and bills are entered for you each new month')
           ]),
           el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
             el('button', {
@@ -915,9 +1003,15 @@
                 settings.currencyCode = code.value || '';
                 settings.locale = locale.value || 'en-US';
                 settings.savingsGoalRate = Number(goal.value) || 0;
+                settings.autoGenerate = auto.checked;
                 S.save();
+                // Switching it back on should catch up straight away rather
+                // than waiting for the next time the app is opened.
+                var added = S.catchUp();
                 render();
-                toast('Settings saved');
+                toast(added.total
+                  ? 'Settings saved · ' + S.plural(added.total, 'entry', 'entries') + ' added'
+                  : 'Settings saved');
               }
             })
           ])
@@ -1131,14 +1225,20 @@
         }
       });
       S.hydrate(result.state, result.backend !== 'memory');
+      // Before the first render, so the month opens already filled in.
+      var added = S.catchUp();
       view.booting = false;
-      if (result.migrated) {
-        S.save();
-        render();
-        toast('Moved your existing records into the database');
-        return;
-      }
+      if (result.migrated) S.save();
       render();
+
+      if (result.migrated) {
+        toast('Moved your existing records into the database');
+      } else if (added.total) {
+        var parts = [];
+        if (added.income) parts.push(S.plural(added.income, 'income entry', 'income entries'));
+        if (added.bills) parts.push(S.plural(added.bills, 'bill'));
+        toast('Added ' + parts.join(' and ') + ' from your recurring set-up');
+      }
     }).catch(function (err) {
       view.booting = false;
       view.bootError = err && err.message ? err.message : String(err);

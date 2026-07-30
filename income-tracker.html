@@ -1116,12 +1116,14 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return {
       version: SCHEMA_VERSION,
       settings: {
-        currencySymbol: '$',
-        currencyCode: 'USD',
-        locale: 'en-US',
-        savingsGoalRate: 20
+        currencySymbol: 'E£',
+        currencyCode: 'EGP',
+        locale: 'en-EG',
+        savingsGoalRate: 20,
+        autoGenerate: true
       },
       income: [],
+      incomeTemplates: [],
       billTemplates: [],
       bills: [],
       purchases: [],
@@ -1150,7 +1152,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return (prefix || 'id') + '_' + rnd;
   }
 
-  var COLLECTION_KEYS = ['income', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
+  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
 
   function migrate(loaded) {
     var base = blankState();
@@ -1205,7 +1207,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   }
 
   var COLLECTIONS = {
-    income: 'inc', billTemplates: 'tpl', bills: 'bil',
+    income: 'inc', incomeTemplates: 'itp', billTemplates: 'tpl', bills: 'bil',
     purchases: 'pur', accounts: 'acc', savingsTx: 'sav'
   };
 
@@ -1228,8 +1230,13 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     if (collection === 'accounts') {
       state.savingsTx = state.savingsTx.filter(function (t) { return t.accountId !== id; });
     }
+    // Deleting a recurring definition keeps the entries it already produced,
+    // orphaned rather than removed — that money really did move.
     if (collection === 'billTemplates') {
       state.bills.forEach(function (b) { if (b.templateId === id) b.templateId = null; });
+    }
+    if (collection === 'incomeTemplates') {
+      state.income.forEach(function (r) { if (r.templateId === id) r.templateId = null; });
     }
     save();
   }
@@ -1238,36 +1245,116 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     return state[collection].find(function (r) { return r.id === id; }) || null;
   }
 
-  /* ------------------------------------------------------- bill generation */
+  /* ------------------------------------------------------------ generation */
 
-  /* Creates bill instances for `period` from active templates, skipping any
-     template that already has an instance there. Returns the number created. */
+  /* One bill for one template in one period, or nothing if it is not due then
+     or already exists. Returns how many rows it added, so callers can total. */
+  function generateBillFor(tpl, period) {
+    if (!occursIn(tpl, period)) return 0;
+    var exists = state.bills.some(function (b) { return b.templateId === tpl.id && b.period === period; });
+    if (exists) return 0;
+    state.bills.push({
+      id: uid('bil'),
+      templateId: tpl.id,
+      name: tpl.name,
+      category: tpl.category,
+      provider: tpl.provider || '',
+      period: period,
+      dueDate: dueDateFor(period, tpl.dueDay),
+      amount: tpl.expected || 0,
+      units: null,
+      unitRate: null,
+      status: 'unpaid',
+      paidDate: '',
+      method: tpl.method || '',
+      notes: ''
+    });
+    return 1;
+  }
+
+  function generateIncomeFor(tpl, period) {
+    if (!occursIn(tpl, period)) return 0;
+    var exists = state.income.some(function (r) {
+      return r.templateId === tpl.id && periodOf(r.date) === period;
+    });
+    if (exists) return 0;
+    state.income.push({
+      id: uid('inc'),
+      templateId: tpl.id,
+      date: dueDateFor(period, tpl.payDay),
+      source: tpl.source,
+      category: tpl.category,
+      amount: tpl.expected || 0,
+      method: tpl.method || '',
+      notes: tpl.notes || ''
+    });
+    return 1;
+  }
+
+  /* Fills `period` from every active template. Used by the manual buttons, so
+     it deliberately ignores generatedThrough — asking for a month means that
+     month, whether or not the automatic sweep has already been past it. */
   function generateBills(period) {
     var created = 0;
-    state.billTemplates.forEach(function (tpl) {
-      if (!occursIn(tpl, period)) return;
-      var exists = state.bills.some(function (b) { return b.templateId === tpl.id && b.period === period; });
-      if (exists) return;
-      state.bills.push({
-        id: uid('bil'),
-        templateId: tpl.id,
-        name: tpl.name,
-        category: tpl.category,
-        provider: tpl.provider || '',
-        period: period,
-        dueDate: dueDateFor(period, tpl.dueDay),
-        amount: tpl.expected || 0,
-        units: null,
-        unitRate: null,
-        status: 'unpaid',
-        paidDate: '',
-        method: tpl.method || '',
-        notes: ''
-      });
-      created++;
-    });
+    state.billTemplates.forEach(function (tpl) { created += generateBillFor(tpl, period); });
     if (created) save();
     return created;
+  }
+
+  function generateIncome(period) {
+    var created = 0;
+    state.incomeTemplates.forEach(function (tpl) { created += generateIncomeFor(tpl, period); });
+    if (created) save();
+    return created;
+  }
+
+  /* -------------------------------------------------------- automatic sweep */
+
+  /* A template remembers the last month it was swept through, so a row you
+     deliberately deleted is not recreated on the next visit — the sweep only
+     ever looks at months it has not seen before. */
+  var CATCHUP_MONTHS = 24;
+  var swept = false;
+
+  function sweep(templates, generate) {
+    var current = currentPeriod();
+    var earliest = shiftPeriod(current, -(CATCHUP_MONTHS - 1));
+    var created = 0;
+
+    templates.forEach(function (tpl) {
+      if (tpl.generatedThrough === current) return;
+      var from = tpl.generatedThrough ? shiftPeriod(tpl.generatedThrough, 1) : (tpl.anchor || current);
+      if (from < earliest) from = earliest; // guard against a stale anchor
+      // Periods are YYYY-MM, so string order is chronological order.
+      for (var period = from; period <= current; period = shiftPeriod(period, 1)) {
+        created += generate(tpl, period);
+      }
+      // Bumped even for paused templates: resuming one should not backfill the
+      // months it was switched off for.
+      tpl.generatedThrough = current;
+      swept = true;
+    });
+
+    return created;
+  }
+
+  /* Brings every recurring definition up to the current month. Called once at
+     start-up: set your salary and your bills up once, and each new month fills
+     itself in. Months are never generated ahead of today, nor before the
+     template existed. */
+  function catchUp() {
+    var result = { income: 0, bills: 0, total: 0 };
+    if (state.settings.autoGenerate === false) return result;
+
+    swept = false;
+    result.income = sweep(state.incomeTemplates, generateIncomeFor);
+    result.bills = sweep(state.billTemplates, generateBillFor);
+    result.total = result.income + result.bills;
+
+    // The generatedThrough marks move even in a month where nothing was due,
+    // so a sweep that added no rows can still need persisting.
+    if (swept) save();
+    return result;
   }
 
   function billIsOverdue(bill, referenceISO) {
@@ -1430,7 +1517,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     shiftPeriod: shiftPeriod, periodLabel: periodLabel, daysInPeriod: daysInPeriod,
     dueDateFor: dueDateFor, occursIn: occursIn,
 
-    generateBills: generateBills, billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
+    generateBills: generateBills, generateIncome: generateIncome, catchUp: catchUp,
+    billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
     normalizeBill: normalizeBill, looksLikeBackup: looksLikeBackup,
     incomeIn: incomeIn, purchasesIn: purchasesIn, billsIn: billsIn, savingsTxIn: savingsTxIn,
     accountBalance: accountBalance, totalSavings: totalSavings,
@@ -1524,8 +1612,9 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
   /* Column lists double as the object<->row mapping, so there is exactly one
      place to change when a field is added. */
   var TABLES = {
-    income: ['id', 'date', 'source', 'category', 'amount', 'method', 'notes'],
-    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'notes'],
+    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'method', 'notes'],
+    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
     bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
     purchases: ['id', 'date', 'item', 'category', 'amount', 'method', 'notes'],
     accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
@@ -1534,7 +1623,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   var TYPES = {
     amount: 'INTEGER', expected: 'INTEGER', target: 'INTEGER', opening: 'INTEGER',
-    dueDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
+    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
   };
 
   var SCHEMA = (function () {
@@ -1555,6 +1644,23 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   function applySchema(database) {
     SCHEMA.forEach(function (sql) { database.run(sql); });
+  }
+
+  /* CREATE TABLE IF NOT EXISTS never widens a table that already exists, so a
+     database written by an earlier build is missing every column added since —
+     and readAll() names its columns explicitly, so the first SELECT would throw
+     and the app would refuse to open on real data. Add what is missing. */
+  function migrateColumns(database) {
+    Object.keys(TABLES).forEach(function (table) {
+      var info = database.exec('PRAGMA table_info("' + table + '")');
+      if (!info.length) return; // freshly created by applySchema — already current
+      var present = info[0].values.map(function (row) { return row[1]; });
+      TABLES[table].forEach(function (col) {
+        if (present.indexOf(col) === -1) {
+          database.run('ALTER TABLE "' + table + '" ADD COLUMN "' + col + '" ' + (TYPES[col] || 'TEXT'));
+        }
+      });
+    });
   }
 
   /* ------------------------------------------------------------ read/write */
@@ -1675,6 +1781,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       if (bytes && bytes.length) {
         db = new SQL.Database(bytes);
         applySchema(db);
+        migrateColumns(db);
       } else {
         db = new SQL.Database();
         applySchema(db);
@@ -1770,20 +1877,48 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
 
   /* ---------------------------------------------------------------- sheets */
 
+  /* The Recurring column is appended, not inserted: Amount stays in column D,
+     which the Summary sheet and the total below both address by letter. */
   function incomeSheet(records) {
-    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes'])];
+    var rows = [headerRow(['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring'])];
     var sorted = records.slice().sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
     sorted.forEach(function (r) {
-      rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '']);
+      rows.push([date(r.date), r.source || '', r.category || '', money(r.amount), r.method || '', r.notes || '',
+        r.templateId ? 'Yes' : '']);
     });
     var total = S.sum(sorted, function (r) { return r.amount; });
     rows.push([]);
-    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null]);
+    rows.push([bold('Total'), null, null, columnTotal('D', 2, sorted.length + 1, total), null, null, null]);
     return {
       name: 'Income', freeze: 1,
-      autoFilter: sorted.length ? 'A1:F' + (sorted.length + 1) : null,
-      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }],
+      autoFilter: sorted.length ? 'A1:G' + (sorted.length + 1) : null,
+      cols: [{ w: 12 }, { w: 24 }, { w: 16 }, { w: 14 }, { w: 16 }, { w: 34 }, { w: 11 }],
       rows: rows, _total: total, _lastRow: sorted.length + 1, _count: sorted.length
+    };
+  }
+
+  function incomeTemplatesSheet() {
+    var templates = S.state.incomeTemplates;
+    var rows = [headerRow(['Source', 'Category', 'Frequency', 'Pay Day',
+      'Expected Amount', 'Income / Month', 'Method', 'Active', 'Notes'])];
+    templates.forEach(function (t) {
+      rows.push([t.source || '', t.category || '', t.frequency || 'Monthly',
+        { t: 'int', v: Number(t.payDay) || 1 }, money(t.expected),
+        money(S.monthlyEquivalent(t)), t.method || '',
+        t.active ? 'Yes' : 'No', t.notes || '']);
+    });
+    // As with bills: a yearly bonus is not a monthly income, so each cadence is
+    // spread over 12 months to make the sources comparable.
+    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
+    rows.push([]);
+    rows.push([bold('Active recurring income, per month'), null, null, null, null,
+      { t: 'money', v: perMonth / 100, s: 'moneyBold' }]);
+    rows.push([bold('Active recurring income, per year'), null, null, null, null,
+      { t: 'money', v: (perMonth * 12) / 100, s: 'moneyBold' }]);
+    return {
+      name: 'Recurring Income', freeze: 1,
+      cols: [{ w: 26 }, { w: 16 }, { w: 13 }, { w: 10 }, { w: 16 }, { w: 15 }, { w: 16 }, { w: 8 }, { w: 28 }],
+      rows: rows
     };
   }
 
@@ -2059,6 +2194,19 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     line('Net (income − spent)', { t: 'money', v: net / 100, s: 'moneyBold' });
     rows.push([]);
 
+    /* What is committed rather than what happened: the standing set-up, put on
+       a monthly footing so cadences are comparable. Independent of scope. */
+    var activeOnly = function (list) { return list.filter(function (t) { return t.active; }); };
+    var incomePerMonth = S.sum(activeOnly(st.incomeTemplates), S.monthlyEquivalent);
+    var billsPerMonth = S.sum(activeOnly(st.billTemplates), S.monthlyEquivalent);
+    rows.push([{ v: 'Recurring set-up, per month', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
+    line('Recurring income', { t: 'money', v: incomePerMonth / 100, s: 'moneyBold' },
+      S.plural(activeOnly(st.incomeTemplates).length, 'active source'));
+    line('Recurring bills', { t: 'money', v: billsPerMonth / 100, s: 'moneyBold' },
+      S.plural(activeOnly(st.billTemplates).length, 'active bill'));
+    line('Left over before purchases', { t: 'money', v: (incomePerMonth - billsPerMonth) / 100, s: 'moneyBold' });
+    rows.push([]);
+
     rows.push([{ v: 'Savings', s: 'group' }, { v: '', s: 'group' }, { v: '', s: 'group' }]);
     line('Paid into savings', { t: 'money', v: sheets.savingsTx._in / 100, s: 'money' });
     line('Withdrawn from savings', { t: 'money', v: sheets.savingsTx._out / 100, s: 'money' });
@@ -2091,6 +2239,7 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var sel = scopeRecords(scope);
     var sheets = {
       income: incomeSheet(sel.income),
+      incomeTemplates: incomeTemplatesSheet(),
       bills: billsSheet(sel.bills),
       templates: templatesSheet(),
       purchases: purchasesSheet(sel.purchases),
@@ -2105,7 +2254,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       currency: S.state.settings.currencySymbol,
       sheets: [
         summarySheet(scope, sel, sheets),
-        sheets.income, sheets.bills, sheets.templates, sheets.purchases,
+        sheets.income, sheets.incomeTemplates,
+        sheets.bills, sheets.templates, sheets.purchases,
         sheets.utilities, sheets.accounts, sheets.savingsTx,
         sheets.monthly, sheets.categories
       ]
@@ -2303,6 +2453,60 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     ]);
   }
 
+  /* The "set it once" panel, shared by income and bills. Recurring definitions
+     are edited rarely, so it stays folded away behind its own summary line. */
+  function recurringSection(cfg) {
+    var open = isOpen(cfg.key);
+    var templates = cfg.templates;
+    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
+    var form = open ? buildForm(cfg.fields, null) : null;
+
+    return el('section', { class: 'sheet' }, [
+      el('div', { class: 'sheet-head' }, [
+        el('h2', { text: cfg.title }),
+        el('span', {
+          class: 'muted spacer',
+          text: templates.length
+            ? S.plural(templates.length, cfg.noun) + ' · ' + money(perMonth) + ' a month'
+            : 'none set up yet'
+        }),
+        el('button', {
+          'aria-expanded': open ? 'true' : 'false',
+          text: open ? 'Hide' : (templates.length ? 'Show' : 'Set up'),
+          onclick: function () { toggle(cfg.key); }
+        })
+      ]),
+      open ? el('div', { class: 'sheet-body flush' }, [
+        templates.length ? table(cfg.headers, templates.map(cfg.row)) : null,
+        el('div', { class: 'disclosure-body' }, [
+          el('p', { class: 'muted', style: 'margin-top:0' }, cfg.hint),
+          el('form', {
+            onsubmit: function (e) {
+              e.preventDefault();
+              var data = form.read();
+              if (!data) { toast('Fill in the required fields'); return; }
+              // The month on screen is where this commitment starts; nothing is
+              // ever generated before it.
+              data.anchor = view.period;
+              data.generatedThrough = null;
+              S.upsert(cfg.collection, data);
+              var added = S.catchUp();
+              render();
+              toast(added.total
+                ? cfg.saved + ' · ' + S.plural(added.total, 'entry', 'entries') + ' added'
+                : cfg.saved);
+            }
+          }, [
+            form.node,
+            el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
+              el('button', { class: 'primary', type: 'submit', text: cfg.saveLabel })
+            ])
+          ])
+        ])
+      ]) : null
+    ]);
+  }
+
   function openEditor(title, fields, record, onSave, afterBuild) {
     var form = buildForm(fields, record);
     var dialog = el('dialog', {}, [
@@ -2374,6 +2578,16 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
       { key: 'category', label: 'Category', type: 'select', options: S.PURCHASE_CATEGORIES, def: 'Groceries' },
       { key: 'amount', label: 'Amount', type: 'money', required: true },
       { key: 'method', label: 'Paid with', type: 'select', options: S.PAYMENT_METHODS, def: 'Card' },
+      { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
+    ],
+    incomeTemplate: [
+      { key: 'source', label: 'Source', type: 'text', placeholder: 'e.g. Acme Ltd — salary', required: true },
+      { key: 'category', label: 'Category', type: 'select', options: S.INCOME_CATEGORIES, def: 'Salary' },
+      { key: 'frequency', label: 'How often', type: 'select', options: S.FREQUENCIES, def: 'Monthly' },
+      { key: 'payDay', label: 'Paid on day', type: 'number', min: 1, step: 1, placeholder: '28' },
+      { key: 'expected', label: 'Amount', type: 'money', required: true },
+      { key: 'method', label: 'Received via', type: 'select', options: S.PAYMENT_METHODS, def: 'Bank Transfer' },
+      { key: 'active', label: 'Active', type: 'checkbox', def: true },
       { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
     ],
     template: [
@@ -2582,17 +2796,26 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var period = view.period;
     var records = S.sortByDateDesc(S.incomeIn(period), 'date');
     var total = S.sum(records, function (r) { return r.amount; });
+    var templates = S.state.incomeTemplates;
 
     return el('div', { class: 'stack' }, [
-      addSection('add-income', 'Income', 'Add income', FIELDS.income, function (data) {
+      addSection('add-income', 'One-off income', 'Add income', FIELDS.income, function (data) {
         S.upsert('income', data);
         toast('Income added');
-      }, !records.length),
+      }, !records.length && !templates.length),
 
       el('section', { class: 'sheet' }, [
         el('div', { class: 'sheet-head' }, [
           el('h2', { text: S.periodLabel(period) }),
           el('span', { class: 'muted spacer', text: S.plural(records.length, 'entry', 'entries') }),
+          templates.length ? el('button', {
+            text: 'Generate from recurring',
+            onclick: function () {
+              var made = S.generateIncome(period);
+              render();
+              toast(made ? 'Added ' + S.plural(made, 'entry', 'entries') : 'Already up to date');
+            }
+          }) : null,
           el('span', { class: 'num', text: money(total) })
         ]),
         el('div', { class: 'sheet-body flush' }, [table(
@@ -2601,7 +2824,12 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
           records.length ? records.map(function (r) {
             return el('tr', {}, [
               el('td', { class: 'num', text: r.date }),
-              el('td', { text: r.source }),
+              el('td', {}, [
+                el('div', { text: r.source }),
+                // Generated rows are marked so you can tell what the app filled
+                // in from what you entered by hand.
+                r.templateId ? el('span', { class: 'cell-sub', text: 'Recurring' }) : null
+              ]),
               el('td', { class: 'muted', text: r.category }),
               el('td', { class: 'num', text: money(r.amount) }),
               el('td', { class: 'muted', text: r.method || '—' }),
@@ -2611,9 +2839,45 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
                 function () { if (confirmDelete('income entry')) { S.remove('income', r.id); render(); } }
               )
             ]);
-          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period), 'Add your salary, invoices, or any other money in.')]
+          }) : [emptyRow(7, 'No income in ' + S.periodLabel(period),
+            templates.length ? 'Nothing is due from your recurring income this month.'
+              : 'Set your salary up once below and it will appear every month on its own.')]
         )])
-      ])
+      ]),
+
+      recurringSection({
+        key: 'recurring-income',
+        title: 'Recurring income',
+        noun: 'source',
+        collection: 'incomeTemplates',
+        fields: FIELDS.incomeTemplate,
+        saveLabel: 'Save recurring income',
+        saved: 'Recurring income saved',
+        hint: 'Set your salary — or any other regular payment — up once here. Each new month it is ' +
+          'entered for you automatically, and you only touch it if the figure changes.',
+        headers: [{ label: 'Source' }, { label: 'Category' }, { label: 'How often' },
+          { label: 'Paid on', num: true }, { label: 'Amount', num: true }, { label: 'Per month', num: true },
+          { label: 'Status' }, { label: '', actions: true }],
+        templates: templates,
+        row: function (t) {
+          return el('tr', {}, [
+            el('td', { text: t.source }),
+            el('td', { class: 'muted', text: t.category }),
+            el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
+            el('td', { class: 'num', text: 'day ' + (t.payDay || 1) }),
+            el('td', { class: 'num', text: money(t.expected) }),
+            el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
+            el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
+            rowActions(
+              function () {
+                openEditor('Edit recurring income', FIELDS.incomeTemplate, t,
+                  function (d) { S.upsert('incomeTemplates', d); });
+              },
+              function () { if (confirmDelete('recurring income')) { S.remove('incomeTemplates', t.id); render(); } }
+            )
+          ]);
+        }
+      })
     ]);
   }
 
@@ -2693,8 +2957,6 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var total = S.sum(bills, function (b) { return b.amount; });
     var paid = S.sum(bills.filter(function (b) { return b.status === 'paid'; }), function (b) { return b.amount; });
     var templates = S.state.billTemplates;
-    var perMonth = S.sum(templates.filter(function (t) { return t.active; }), S.monthlyEquivalent);
-    var showRecurring = isOpen('recurring');
 
     return el('div', { class: 'stack' }, [
       /* This month's bills lead, because that is the monthly job. */
@@ -2729,70 +2991,42 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
             { label: 'Units', num: true }, { label: 'Unit' }, { label: 'Status' }, { label: '', actions: true }],
           bills.length ? bills.map(billRow)
             : [emptyRow(8, 'No bills for ' + S.periodLabel(period),
-              templates.length ? 'Use "Generate from recurring" to create this month\'s bills.'
-                : 'Set up your recurring bills below — electricity, water, internet — then generate them each month.')]
+              templates.length ? 'Nothing is due from your recurring bills this month.'
+                : 'Set your bills up once below — electricity, water, internet — and each month fills itself in.')]
         )])
       ]),
 
-      /* Recurring definitions are set up rarely, so they stay folded. */
-      el('section', { class: 'sheet' }, [
-        el('div', { class: 'sheet-head' }, [
-          el('h2', { text: 'Recurring bills' }),
-          el('span', {
-            class: 'muted spacer',
-            text: templates.length ? S.plural(templates.length, 'bill') + ' · ' + money(perMonth) + ' a month' : 'none set up yet'
-          }),
-          el('button', {
-            'aria-expanded': showRecurring ? 'true' : 'false',
-            text: showRecurring ? 'Hide' : (templates.length ? 'Show' : 'Set up'),
-            onclick: function () { toggle('recurring'); }
-          })
-        ]),
-        showRecurring ? el('div', { class: 'sheet-body flush' }, [
-          templates.length ? table(
-            [{ label: 'Bill' }, { label: 'Category' }, { label: 'Provider' }, { label: 'How often' },
-              { label: 'Due day', num: true }, { label: 'Typical', num: true }, { label: 'Per month', num: true },
-              { label: 'Status' }, { label: '', actions: true }],
-            templates.map(function (t) {
-              return el('tr', {}, [
-                el('td', { text: t.name }),
-                el('td', { class: 'muted', text: t.category }),
-                el('td', { class: 'muted', text: t.provider || '—' }),
-                el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
-                el('td', { class: 'num', text: t.dueDay || 1 }),
-                el('td', { class: 'num', text: money(t.expected) }),
-                el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
-                el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
-                rowActions(
-                  function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
-                  function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
-                )
-              ]);
-            })
-          ) : null,
-          el('div', { class: 'disclosure-body' }, [
-            (function () {
-              var form = buildForm(FIELDS.template, null);
-              return el('form', {
-                onsubmit: function (e) {
-                  e.preventDefault();
-                  var data = form.read();
-                  if (!data) { toast('Fill in the required fields'); return; }
-                  data.anchor = view.period;
-                  S.upsert('billTemplates', data);
-                  render();
-                  toast('Recurring bill saved');
-                }
-              }, [
-                form.node,
-                el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
-                  el('button', { class: 'primary', type: 'submit', text: 'Save recurring bill' })
-                ])
-              ]);
-            }())
-          ])
-        ]) : null
-      ])
+      recurringSection({
+        key: 'recurring',
+        title: 'Recurring bills',
+        noun: 'bill',
+        collection: 'billTemplates',
+        fields: FIELDS.template,
+        saveLabel: 'Save recurring bill',
+        saved: 'Recurring bill saved',
+        hint: 'Set each bill up once here — what it is, how often, and the typical amount. Each new ' +
+          'month it appears above on its own; type in the real figure when the bill arrives.',
+        headers: [{ label: 'Bill' }, { label: 'Category' }, { label: 'Provider' }, { label: 'How often' },
+          { label: 'Due day', num: true }, { label: 'Typical', num: true }, { label: 'Per month', num: true },
+          { label: 'Status' }, { label: '', actions: true }],
+        templates: templates,
+        row: function (t) {
+          return el('tr', {}, [
+            el('td', { text: t.name }),
+            el('td', { class: 'muted', text: t.category }),
+            el('td', { class: 'muted', text: t.provider || '—' }),
+            el('td', { class: 'muted', text: t.frequency || 'Monthly' }),
+            el('td', { class: 'num', text: t.dueDay || 1 }),
+            el('td', { class: 'num', text: money(t.expected) }),
+            el('td', { class: 'num', title: 'Spread across the year', text: money(S.monthlyEquivalent(t)) }),
+            el('td', {}, [el('span', { class: 'status ' + (t.active ? 'paid' : ''), text: t.active ? 'Active' : 'Paused' })]),
+            rowActions(
+              function () { openEditor('Edit recurring bill', FIELDS.template, t, function (d) { S.upsert('billTemplates', d); }); },
+              function () { if (confirmDelete('recurring bill')) { S.remove('billTemplates', t.id); render(); } }
+            )
+          ]);
+        }
+      })
     ]);
   }
 
@@ -3003,6 +3237,8 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
     var code = el('input', { type: 'text', value: settings.currencyCode, maxlength: '5' });
     var locale = el('input', { type: 'text', value: settings.locale, placeholder: 'en-US' });
     var goal = el('input', { type: 'number', value: settings.savingsGoalRate, min: '0', max: '100', step: '1' });
+    var auto = el('input', { type: 'checkbox' });
+    auto.checked = settings.autoGenerate !== false;
 
     var restoreInput = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
     restoreInput.addEventListener('change', function () {
@@ -3030,7 +3266,9 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
             settingRow('Currency symbol', symbol, 'Used on screen and in Excel'),
             settingRow('Currency code', code, 'e.g. USD, GBP, EUR, NGN'),
             settingRow('Number locale', locale, 'Controls digit grouping'),
-            settingRow('Savings goal', goal, '% of income you aim to save')
+            settingRow('Savings goal', goal, '% of income you aim to save'),
+            settingRow('Fill in recurring entries automatically', auto,
+              'Your recurring income and bills are entered for you each new month')
           ]),
           el('div', { class: 'btn-row', style: 'margin-top:16px' }, [
             el('button', {
@@ -3040,9 +3278,15 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
                 settings.currencyCode = code.value || '';
                 settings.locale = locale.value || 'en-US';
                 settings.savingsGoalRate = Number(goal.value) || 0;
+                settings.autoGenerate = auto.checked;
                 S.save();
+                // Switching it back on should catch up straight away rather
+                // than waiting for the next time the app is opened.
+                var added = S.catchUp();
                 render();
-                toast('Settings saved');
+                toast(added.total
+                  ? 'Settings saved · ' + S.plural(added.total, 'entry', 'entries') + ' added'
+                  : 'Settings saved');
               }
             })
           ])
@@ -3256,14 +3500,20 @@ globalThis.__SQL_WASM_B64__ = "AGFzbQEAAAABnwRFYAJ/fwF/YAF/AX9gA39/fwBgA39/fwF/Y
         }
       });
       S.hydrate(result.state, result.backend !== 'memory');
+      // Before the first render, so the month opens already filled in.
+      var added = S.catchUp();
       view.booting = false;
-      if (result.migrated) {
-        S.save();
-        render();
-        toast('Moved your existing records into the database');
-        return;
-      }
+      if (result.migrated) S.save();
       render();
+
+      if (result.migrated) {
+        toast('Moved your existing records into the database');
+      } else if (added.total) {
+        var parts = [];
+        if (added.income) parts.push(S.plural(added.income, 'income entry', 'income entries'));
+        if (added.bills) parts.push(S.plural(added.bills, 'bill'));
+        toast('Added ' + parts.join(' and ') + ' from your recurring set-up');
+      }
     }).catch(function (err) {
       view.booting = false;
       view.bootError = err && err.message ? err.message : String(err);

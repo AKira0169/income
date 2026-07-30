@@ -163,12 +163,14 @@
     return {
       version: SCHEMA_VERSION,
       settings: {
-        currencySymbol: '$',
-        currencyCode: 'USD',
-        locale: 'en-US',
-        savingsGoalRate: 20
+        currencySymbol: 'E£',
+        currencyCode: 'EGP',
+        locale: 'en-EG',
+        savingsGoalRate: 20,
+        autoGenerate: true
       },
       income: [],
+      incomeTemplates: [],
       billTemplates: [],
       bills: [],
       purchases: [],
@@ -197,7 +199,7 @@
     return (prefix || 'id') + '_' + rnd;
   }
 
-  var COLLECTION_KEYS = ['income', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
+  var COLLECTION_KEYS = ['income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases', 'accounts', 'savingsTx'];
 
   function migrate(loaded) {
     var base = blankState();
@@ -252,7 +254,7 @@
   }
 
   var COLLECTIONS = {
-    income: 'inc', billTemplates: 'tpl', bills: 'bil',
+    income: 'inc', incomeTemplates: 'itp', billTemplates: 'tpl', bills: 'bil',
     purchases: 'pur', accounts: 'acc', savingsTx: 'sav'
   };
 
@@ -275,8 +277,13 @@
     if (collection === 'accounts') {
       state.savingsTx = state.savingsTx.filter(function (t) { return t.accountId !== id; });
     }
+    // Deleting a recurring definition keeps the entries it already produced,
+    // orphaned rather than removed — that money really did move.
     if (collection === 'billTemplates') {
       state.bills.forEach(function (b) { if (b.templateId === id) b.templateId = null; });
+    }
+    if (collection === 'incomeTemplates') {
+      state.income.forEach(function (r) { if (r.templateId === id) r.templateId = null; });
     }
     save();
   }
@@ -285,36 +292,116 @@
     return state[collection].find(function (r) { return r.id === id; }) || null;
   }
 
-  /* ------------------------------------------------------- bill generation */
+  /* ------------------------------------------------------------ generation */
 
-  /* Creates bill instances for `period` from active templates, skipping any
-     template that already has an instance there. Returns the number created. */
+  /* One bill for one template in one period, or nothing if it is not due then
+     or already exists. Returns how many rows it added, so callers can total. */
+  function generateBillFor(tpl, period) {
+    if (!occursIn(tpl, period)) return 0;
+    var exists = state.bills.some(function (b) { return b.templateId === tpl.id && b.period === period; });
+    if (exists) return 0;
+    state.bills.push({
+      id: uid('bil'),
+      templateId: tpl.id,
+      name: tpl.name,
+      category: tpl.category,
+      provider: tpl.provider || '',
+      period: period,
+      dueDate: dueDateFor(period, tpl.dueDay),
+      amount: tpl.expected || 0,
+      units: null,
+      unitRate: null,
+      status: 'unpaid',
+      paidDate: '',
+      method: tpl.method || '',
+      notes: ''
+    });
+    return 1;
+  }
+
+  function generateIncomeFor(tpl, period) {
+    if (!occursIn(tpl, period)) return 0;
+    var exists = state.income.some(function (r) {
+      return r.templateId === tpl.id && periodOf(r.date) === period;
+    });
+    if (exists) return 0;
+    state.income.push({
+      id: uid('inc'),
+      templateId: tpl.id,
+      date: dueDateFor(period, tpl.payDay),
+      source: tpl.source,
+      category: tpl.category,
+      amount: tpl.expected || 0,
+      method: tpl.method || '',
+      notes: tpl.notes || ''
+    });
+    return 1;
+  }
+
+  /* Fills `period` from every active template. Used by the manual buttons, so
+     it deliberately ignores generatedThrough — asking for a month means that
+     month, whether or not the automatic sweep has already been past it. */
   function generateBills(period) {
     var created = 0;
-    state.billTemplates.forEach(function (tpl) {
-      if (!occursIn(tpl, period)) return;
-      var exists = state.bills.some(function (b) { return b.templateId === tpl.id && b.period === period; });
-      if (exists) return;
-      state.bills.push({
-        id: uid('bil'),
-        templateId: tpl.id,
-        name: tpl.name,
-        category: tpl.category,
-        provider: tpl.provider || '',
-        period: period,
-        dueDate: dueDateFor(period, tpl.dueDay),
-        amount: tpl.expected || 0,
-        units: null,
-        unitRate: null,
-        status: 'unpaid',
-        paidDate: '',
-        method: tpl.method || '',
-        notes: ''
-      });
-      created++;
-    });
+    state.billTemplates.forEach(function (tpl) { created += generateBillFor(tpl, period); });
     if (created) save();
     return created;
+  }
+
+  function generateIncome(period) {
+    var created = 0;
+    state.incomeTemplates.forEach(function (tpl) { created += generateIncomeFor(tpl, period); });
+    if (created) save();
+    return created;
+  }
+
+  /* -------------------------------------------------------- automatic sweep */
+
+  /* A template remembers the last month it was swept through, so a row you
+     deliberately deleted is not recreated on the next visit — the sweep only
+     ever looks at months it has not seen before. */
+  var CATCHUP_MONTHS = 24;
+  var swept = false;
+
+  function sweep(templates, generate) {
+    var current = currentPeriod();
+    var earliest = shiftPeriod(current, -(CATCHUP_MONTHS - 1));
+    var created = 0;
+
+    templates.forEach(function (tpl) {
+      if (tpl.generatedThrough === current) return;
+      var from = tpl.generatedThrough ? shiftPeriod(tpl.generatedThrough, 1) : (tpl.anchor || current);
+      if (from < earliest) from = earliest; // guard against a stale anchor
+      // Periods are YYYY-MM, so string order is chronological order.
+      for (var period = from; period <= current; period = shiftPeriod(period, 1)) {
+        created += generate(tpl, period);
+      }
+      // Bumped even for paused templates: resuming one should not backfill the
+      // months it was switched off for.
+      tpl.generatedThrough = current;
+      swept = true;
+    });
+
+    return created;
+  }
+
+  /* Brings every recurring definition up to the current month. Called once at
+     start-up: set your salary and your bills up once, and each new month fills
+     itself in. Months are never generated ahead of today, nor before the
+     template existed. */
+  function catchUp() {
+    var result = { income: 0, bills: 0, total: 0 };
+    if (state.settings.autoGenerate === false) return result;
+
+    swept = false;
+    result.income = sweep(state.incomeTemplates, generateIncomeFor);
+    result.bills = sweep(state.billTemplates, generateBillFor);
+    result.total = result.income + result.bills;
+
+    // The generatedThrough marks move even in a month where nothing was due,
+    // so a sweep that added no rows can still need persisting.
+    if (swept) save();
+    return result;
   }
 
   function billIsOverdue(bill, referenceISO) {
@@ -477,7 +564,8 @@
     shiftPeriod: shiftPeriod, periodLabel: periodLabel, daysInPeriod: daysInPeriod,
     dueDateFor: dueDateFor, occursIn: occursIn,
 
-    generateBills: generateBills, billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
+    generateBills: generateBills, generateIncome: generateIncome, catchUp: catchUp,
+    billIsOverdue: billIsOverdue, monthlyEquivalent: monthlyEquivalent,
     normalizeBill: normalizeBill, looksLikeBackup: looksLikeBackup,
     incomeIn: incomeIn, purchasesIn: purchasesIn, billsIn: billsIn, savingsTxIn: savingsTxIn,
     accountBalance: accountBalance, totalSavings: totalSavings,

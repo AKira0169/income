@@ -40,8 +40,12 @@ Store.replaceState({
   settings: { currencySymbol: '£', currencyCode: 'GBP', locale: 'en-GB', savingsGoalRate: 20 },
   income: [
     { id: 'i1', date: '2026-06-28', source: 'Acme Ltd', category: 'Salary', amount: 320000, method: 'Bank Transfer', notes: 'June pay' },
-    { id: 'i2', date: '2026-07-28', source: 'Acme Ltd', category: 'Salary', amount: 320000, method: 'Bank Transfer', notes: '' },
+    { id: 'i2', templateId: 'it1', date: '2026-07-28', source: 'Acme Ltd', category: 'Salary', amount: 320000, method: 'Bank Transfer', notes: '' },
     { id: 'i3', date: '2026-07-12', source: 'Café Ünïcode & Co', category: 'Freelance', amount: 45050, method: 'Card', notes: 'logo <design>' }
+  ],
+  incomeTemplates: [
+    { id: 'it1', source: 'Acme Ltd', category: 'Salary', frequency: 'Monthly', payDay: 25, expected: 320000, method: 'Bank Transfer', active: true, anchor: '2026-06', generatedThrough: null, notes: '' },
+    { id: 'it2', source: 'Rental flat', category: 'Rental', frequency: 'Quarterly', payDay: 1, expected: 90000, method: 'Bank Transfer', active: true, anchor: '2026-07', generatedThrough: null, notes: '' }
   ],
   billTemplates: [
     { id: 't1', name: 'Electricity', category: 'Electricity', provider: 'Ørsted', frequency: 'Monthly', dueDay: 5, expected: 8500, method: 'Direct Debit', active: true, anchor: '2026-06', notes: '' },
@@ -96,6 +100,31 @@ check('bill count grew by 1', Store.state.bills.length, beforeAug + 1);
 check('re-running is idempotent', Store.generateBills('2026-08'), 0);
 check('october picks up quarterly water', Store.generateBills('2026-10'), 2);
 
+console.log('\nrecurring income:');
+check('august generates the monthly salary only (rent is quarterly from July)', Store.generateIncome('2026-08'), 1);
+check('re-running is idempotent', Store.generateIncome('2026-08'), 0);
+const aug = Store.incomeIn('2026-08');
+check('one august entry', aug.length, 1);
+check('lands on the pay day', aug[0].date, '2026-08-25');
+check('carries the template amount', aug[0].amount, 320000);
+check('is traceable back to its template', aug[0].templateId, 'it1');
+check('october picks up the quarterly rent too', Store.generateIncome('2026-10'), 2);
+
+console.log('\nautomatic catch-up:');
+// Every template starts unswept, so the first sweep has months to fill.
+check('the first sweep adds entries', Store.catchUp().total > 0, true);
+check('sweeping again adds nothing', Store.catchUp().total, 0);
+check('every template is marked swept to the current month',
+  Store.state.incomeTemplates.concat(Store.state.billTemplates)
+    .every(t => t.generatedThrough === Store.currentPeriod()), true);
+// The marker is what stops a row you deleted on purpose reappearing.
+const doomed = Store.state.income.filter(r => r.templateId === 'it1').pop();
+Store.remove('income', doomed.id);
+check('a deleted generated entry stays deleted', Store.catchUp().total, 0);
+check('and is really gone', Store.state.income.some(r => r.id === doomed.id), false);
+// Asking for a month explicitly still works after the sweep has passed it.
+check('the manual button can refill that month', Store.generateIncome(Store.periodOf(doomed.date)), 1);
+
 console.log('\nfrequencies:');
 const occurs = (frequency, anchor, period) =>
   Store.occursIn({ active: true, frequency, anchor }, period);
@@ -137,8 +166,10 @@ check('quarterly 60.00 -> 20.00/mo', Store.monthlyEquivalent({ frequency: 'Quart
 check('yearly 600.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Yearly', expected: 60000 }), 5000);
 check('half-yearly 300.00 -> 50.00/mo', Store.monthlyEquivalent({ frequency: 'Half-yearly', expected: 30000 }), 5000);
 check('one-off counts as 0/mo', Store.monthlyEquivalent({ frequency: 'One-off', expected: 50000 }), 0);
-// Roll back the generated bills so the export assertions below use the seed set.
+// Roll back everything generated above so the export assertions below run
+// against the seed set.
 Store.state.bills = Store.state.bills.filter(b => ['b1', 'b2', 'b3', 'b4'].includes(b.id));
+Store.state.income = Store.state.income.filter(r => ['i1', 'i2', 'i3'].includes(r.id));
 
 /* ---------------- build + parse ---------------- */
 const bytes = Exporter.build({ type: 'all' });
@@ -159,16 +190,26 @@ const grid = (name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, ra
 
 console.log('\nworkbook:');
 check('sheet names', wb.SheetNames, [
-  'Summary', 'Income', 'Bills', 'Recurring Bills', 'Purchases',
+  'Summary', 'Income', 'Recurring Income', 'Bills', 'Recurring Bills', 'Purchases',
   'Utilities & Meters', 'Savings Accounts', 'Savings Transactions',
   'Monthly Breakdown', 'Category Breakdown'
 ]);
 
 const inc = grid('Income');
-check('income header', inc[0], ['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes']);
+check('income header', inc[0], ['Date', 'Source', 'Category', 'Amount', 'Method', 'Notes', 'Recurring']);
 check('income sorted oldest first', inc[1][0], 46201); // 2026-06-28
 // Rows are date-ascending: i1 (06-28), i3 (07-12), i2 (07-28).
 check('income non-ascii source survives', inc[2][1], 'Café Ünïcode & Co');
+check('a template-generated row is flagged', inc[3][6], 'Yes');
+check('a hand-entered row is not', inc[1][6], undefined);
+
+const recIn = grid('Recurring Income');
+check('recurring income header', recIn[0].slice(0, 6),
+  ['Source', 'Category', 'Frequency', 'Pay Day', 'Expected Amount', 'Income / Month']);
+check('salary is 3200 a month', recIn[1][5], 3200);
+check('quarterly rent spreads to 300 a month', recIn[2][5], 300);
+check('active recurring income per month', recIn[4][5], 3500);
+check('active recurring income per year', recIn[5][5], 42000);
 check('income amount major units', inc[2][3], 450.5);
 check('income notes keep XML metachars', inc[2][5], 'logo <design>');
 check('income total formula', wb.Sheets['Income'].D6.f, 'SUM(D2:D4)');
@@ -216,7 +257,10 @@ const summary = grid('Summary');
 check('summary title', summary[0][0], 'Income & Spending Report');
 check('summary scope', summary[1][0], 'All time');
 check('cross-sheet income formula', wb.Sheets.Summary.B6.f, 'SUM(Income!D2:D4)');
-check('cross-sheet savings formula quotes the sheet name', wb.Sheets.Summary.B19.f, "SUM('Savings Accounts'!F2:F3)");
+check('cross-sheet savings formula quotes the sheet name', wb.Sheets.Summary.B24.f, "SUM('Savings Accounts'!F2:F3)");
+check('summary recurring income per month', wb.Sheets.Summary.B15.v, 3500);
+check('summary recurring bills per month', wb.Sheets.Summary.B16.v, 85 + 20);
+check('summary left over before purchases', wb.Sheets.Summary.B17.v, 3500 - 105);
 check('summary net cached', wb.Sheets.Summary.B12.v, 6850.5 - 487.07);
 check('summary outstanding cached', wb.Sheets.Summary.B9.v, 96.19);
 check('currency format uses £', (wb.Sheets.Summary.B6.z || '').includes('£'), true);

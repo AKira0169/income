@@ -80,8 +80,9 @@
   /* Column lists double as the object<->row mapping, so there is exactly one
      place to change when a field is added. */
   var TABLES = {
-    income: ['id', 'date', 'source', 'category', 'amount', 'method', 'notes'],
-    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'notes'],
+    income: ['id', 'templateId', 'date', 'source', 'category', 'amount', 'method', 'notes'],
+    incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
+    billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
     bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
     purchases: ['id', 'date', 'item', 'category', 'amount', 'method', 'notes'],
     accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
@@ -90,7 +91,7 @@
 
   var TYPES = {
     amount: 'INTEGER', expected: 'INTEGER', target: 'INTEGER', opening: 'INTEGER',
-    dueDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
+    dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL'
   };
 
   var SCHEMA = (function () {
@@ -111,6 +112,23 @@
 
   function applySchema(database) {
     SCHEMA.forEach(function (sql) { database.run(sql); });
+  }
+
+  /* CREATE TABLE IF NOT EXISTS never widens a table that already exists, so a
+     database written by an earlier build is missing every column added since —
+     and readAll() names its columns explicitly, so the first SELECT would throw
+     and the app would refuse to open on real data. Add what is missing. */
+  function migrateColumns(database) {
+    Object.keys(TABLES).forEach(function (table) {
+      var info = database.exec('PRAGMA table_info("' + table + '")');
+      if (!info.length) return; // freshly created by applySchema — already current
+      var present = info[0].values.map(function (row) { return row[1]; });
+      TABLES[table].forEach(function (col) {
+        if (present.indexOf(col) === -1) {
+          database.run('ALTER TABLE "' + table + '" ADD COLUMN "' + col + '" ' + (TYPES[col] || 'TEXT'));
+        }
+      });
+    });
   }
 
   /* ------------------------------------------------------------ read/write */
@@ -231,6 +249,7 @@
       if (bytes && bytes.length) {
         db = new SQL.Database(bytes);
         applySchema(db);
+        migrateColumns(db);
       } else {
         db = new SQL.Database();
         applySchema(db);

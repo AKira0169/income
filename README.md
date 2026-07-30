@@ -4,35 +4,68 @@ A personal money tracker that runs entirely in your browser, stores everything i
 a real SQLite database, and exports a real Excel workbook. One file, no install,
 no account, no internet connection, and nothing leaves your computer.
 
-## Using it
+## Running it
 
-Double-click **`income-tracker.html`**. That is the whole app — about 1 MB,
-most of which is the SQLite engine compiled to WebAssembly.
+Double-click **`income-tracker.html`**. That is the whole app — about 1 MB, most
+of which is the SQLite engine compiled to WebAssembly. There is no server to
+start, nothing to install, and your records persist between sessions.
 
 Use Chrome or Edge. If the browser blocks local storage, a red warning appears
 on every screen and you should export your data before closing the tab.
+
+It starts in Egyptian pounds (`E£` / `EGP`). Change that, and the number format,
+under **Settings → Currency & goals**.
+
+### As a desktop app
+
+To get it out of a browser tab and into its own window — no address bar, no tabs,
+its own taskbar button — run this once:
+
+```
+powershell -ExecutionPolicy Bypass -File make-shortcut.ps1
+```
+
+That puts an **Income Tracker** shortcut on your Desktop, with its own icon.
+Still no install: the shortcut just starts Chrome (or Edge) in app mode against
+the local file, so the app stays exactly as portable as it was. Right-click its
+taskbar button and choose *Pin to taskbar* to keep it there. Re-run the script
+if you move the folder — the shortcut stores absolute paths.
 
 ### What it tracks
 
 | Tab | What goes in it |
 | --- | --- |
 | **Dashboard** | Month at a glance: income, bills, purchases, net, savings rate, a 6-month income-vs-spending chart, bills due soon, and progress against savings targets. |
-| **Income** | Salary, freelance, rental, interest, bonuses, refunds — date, source, category, amount, how it arrived. |
-| **Bills & Utilities** | Set up each recurring bill once (electricity, water, gas, internet, mobile, rent, council tax, insurance, subscriptions…), then generate that month's bills with one click and fill in what you were actually charged. |
+| **Income** | Set your salary and any other regular payment up **once**; each new month it is entered for you. One-off money — freelance, refunds, gifts — you add as it arrives. |
+| **Bills & Utilities** | Set up each recurring bill once (electricity, water, gas, internet, mobile, rent, council tax, insurance, subscriptions…) and every month fills itself in, pre-filled with the typical amount, ready for you to correct to what you were actually charged. |
 | **Purchases** | One-off spending — groceries, fuel, clothes, electronics, travel. |
 | **Savings** | Accounts and pots with optional targets, plus every deposit and withdrawal. Balances update automatically. |
 | **Settings** | Currency, number format, savings goal, backup/restore, erase. |
 
-### Bills are the part worth understanding
+### Set it once — the part worth understanding
 
-Utility costs change every month, so bills work in two layers:
+The money that repeats is the money you should never have to retype. Income and
+bills both work in two layers:
 
-1. **Recurring bill** — the standing definition: name, provider, how often,
-   which day it is due, the typical amount.
-2. **Monthly bill** — the actual charge. Press **Generate from recurring** at
-   the start of each month and every due bill appears, pre-filled with the
-   typical amount. When the real bill arrives, type the actual figure straight
-   into the table and press **Mark paid**.
+1. **The recurring definition** — set up once, under *Recurring income* on the
+   Income tab or *Recurring bills* on the Bills tab. What it is, how often, which
+   day of the month, the usual amount.
+2. **The monthly entry** — the actual figure. Every time you open the app it
+   brings the current month up to date automatically, so your salary is already
+   there and each bill is waiting, pre-filled with the typical amount. When the
+   real bill arrives, type the actual figure straight into the table and press
+   **Mark paid**.
+
+You are still in charge of what is on the page. Nothing is generated for a month
+before you set the item up, nothing is generated ahead of today, and an entry you
+delete stays deleted — each definition remembers how far it has been taken, so
+revisiting a month never resurrects a row you removed on purpose. Miss a few
+months and the next visit fills in every one you missed, up to two years back.
+
+Generated rows are labelled **Recurring**, so you can always tell what the app
+filled in from what you entered by hand. **Generate from recurring** is still
+there on both tabs for filling a specific month on demand, and the whole thing
+can be switched off under **Settings → Fill in recurring entries automatically**.
 
 Electricity, water and gas also take a **units** reading (kWh or m³). Enter it
 and the workbook works out your real cost per unit month over month — so you can
@@ -47,10 +80,11 @@ what your recurring commitments really come to.
 ### Excel export
 
 **Export to Excel** produces an `.xlsx` for the current month, the current year,
-or everything. It contains ten sheets:
+or everything. It contains eleven sheets:
 
-- **Summary** — headline totals, savings rate, and where the money went
-- **Income**, **Bills**, **Recurring Bills**, **Purchases**
+- **Summary** — headline totals, your recurring set-up per month, savings rate,
+  and where the money went
+- **Income**, **Recurring Income**, **Bills**, **Recurring Bills**, **Purchases**
 - **Utilities & Meters** — consumption and implied cost per unit
 - **Savings Accounts**, **Savings Transactions**
 - **Monthly Breakdown** — month-by-month with totals and monthly averages
@@ -63,13 +97,30 @@ sheets have filters and frozen headers.
 ### Where your data is kept
 
 In a real **SQLite database**, running inside the page via WebAssembly. Tables:
-`income`, `bills`, `billTemplates`, `purchases`, `accounts`, `savingsTx`,
-`settings`. Money is stored as whole cents (`INTEGER`), so totals never drift.
+`income`, `incomeTemplates`, `bills`, `billTemplates`, `purchases`, `accounts`,
+`savingsTx`, `settings`. Money is stored as whole cents (`INTEGER`), so totals
+never drift.
 
 The database is held in the browser's IndexedDB — not as a file on disk you can
 see. Opening the app from `file://` rules out SQLite's usual persistent storage
 (OPFS is blocked there), so the whole database is written back to IndexedDB
 after every change. At this data size that takes about a millisecond.
+
+**Open it the same way every time.** IndexedDB is keyed to the origin, and
+`file:///…/income-tracker.html` and `http://127.0.0.1:5500/income-tracker.html`
+are two different origins with two separate databases. Data entered one way is
+invisible the other way — it is not lost, just filed under the address you were
+using.
+
+If you have been opening it through a local server and want to switch to
+double-clicking, carry the data across yourself:
+
+1. On the server address, **Settings → Download backup (.json)**.
+2. Open the app the new way, then **Settings → Restore from .json** and pick
+   that file.
+
+It has to be the `.json`. The `.db` download is a copy of the database for other
+SQLite tools, and the `.xlsx` is a report — neither is what **Restore** reads.
 
 **Settings → Query your data** opens a read-only SQL console, so you can ask
 things the app doesn't have a screen for:
@@ -108,12 +159,30 @@ node build.mjs
 | `src/app.css` | The Paper design system |
 | `src/shell.html` | Page shell the build inlines everything into |
 | `vendor/` | sql.js 1.13.0 (MIT) — SQLite compiled to WebAssembly |
+| `make-icon.mjs` | Draws `income-tracker.ico` from the same mark as the favicon |
+| `make-shortcut.ps1` | Puts the app-mode shortcut on the Desktop |
+
+`income-tracker.ico` is committed, so `make-icon.mjs` only needs running if the
+mark in `src/shell.html` changes. It rasterises the shape from its own geometry
+and writes the ICO container by hand — same approach as the XLSX writer, and for
+the same reason: no dependency is worth the install.
+
+Keep `make-shortcut.ps1` pure ASCII. Windows PowerShell 5.1 reads a `.ps1`
+without a BOM as ANSI, and a UTF-8 em dash decodes into a character PowerShell
+treats as a quote — which breaks the parse a long way from the actual line.
 
 `Store` holds the working copy in memory and takes a persistence adapter, so the
 browser writes through to SQLite while the Node tests run the identical logic
 against plain memory. Every save rewrites the tables in one transaction rather
 than syncing row by row, which keeps the database exactly consistent with what
 is on screen.
+
+The column lists in `src/sqlite.js` are the schema. `CREATE TABLE IF NOT EXISTS`
+does not widen a table that already exists, so on start-up `migrateColumns()`
+compares each list against `PRAGMA table_info` and `ALTER TABLE … ADD COLUMN`s
+whatever is missing. Adding a field is therefore one edit to a column list —
+without that step, `readAll()` names a column that is not there yet and an
+existing database refuses to open.
 
 Money is stored everywhere as an integer number of cents, so totals never drift
 by a penny.
