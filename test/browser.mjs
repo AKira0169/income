@@ -73,7 +73,7 @@ try {
   check('sqlite reached IndexedDB, not the memory fallback',
     await tab.evaluate(() => globalThis.__app.backend()), 'indexeddb');
   check('every tab renders',
-    await tab.evaluate(() => document.querySelectorAll('.tab').length), 7);
+    await tab.evaluate(() => document.querySelectorAll('.tab').length), 8);
 
   /* ---------------- hash routing ---------------- */
   console.log('\nhash routing (reload and back/forward):');
@@ -305,7 +305,7 @@ try {
     a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
   });
 
-  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'gold', 'settings']) {
+  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings']) {
     await tab.evaluate((t) => globalThis.__app.goTab(t), id);
     await settle();
     check(`${id} renders something`, await tab.evaluate(() =>
@@ -350,6 +350,60 @@ try {
   }), 'refused');
   check('the delete really did not happen',
     await tab.evaluate(() => globalThis.__app.state().income.length), 1);
+
+  /* ---------------- goals: ordering, the form, and SQLite ---------------- */
+  console.log('\nthe Goals tab:');
+  await tab.evaluate(() => {
+    const a = globalThis.__app;
+    a.upsert('goals', { id: 'gol_1', name: 'First', price: 100000, priority: 1, boughtDate: '', notes: '' });
+    a.upsert('goals', { id: 'gol_2', name: 'Second', price: 200000, priority: 2, boughtDate: '', notes: '' });
+  });
+  await tab.evaluate(() => globalThis.__app.goTab('goals'));
+  await settle();
+
+  // The goals table is the first table on the tab; column 1 is the name cell.
+  const goalOrder = () => tab.evaluate(() => [...document.querySelectorAll('main table')[0]
+    .querySelectorAll('tbody tr')].map((r) => r.children[1].textContent));
+
+  check('the Goals tab renders the queue', await goalOrder(), ['First', 'Second']);
+
+  await tab.evaluate(() => document
+    .querySelector('button[aria-label="Move Second up"]').click());
+  await settle();
+  check('move up reorders the queue', await goalOrder(), ['Second', 'First']);
+
+  await tab.evaluate(() => document
+    .querySelector('button[aria-label="Move Second down"]').click());
+  await settle();
+  check('and move down puts it back', await goalOrder(), ['First', 'Second']);
+  check('move up is disabled on the first goal', await tab.evaluate(() =>
+    document.querySelector('button[aria-label="Move First up"]').disabled), true);
+
+  /* The same trap the rest of the suite is arranged around: a field rendering
+     `value={initial}` instead of `defaultValue` eats what was typed the moment
+     anything else redraws the page. */
+  await tab.evaluate(() => {
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Add a goal');
+    btn.click();
+  });
+  await tab.waitForSelector('form input[name="name"]');
+  await tab.evaluate(() => { document.querySelector('form input[name="name"]').value = 'half typed'; });
+  await tab.evaluate(() => globalThis.__app.upsert('goals', {
+    id: 'gol_3', name: 'Distraction', price: 0, priority: 3, boughtDate: '', notes: ''
+  }));
+  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+  check('the open goal form really did redraw', (await goalOrder()).length, 3);
+  check('and the half-typed name is still there',
+    await tab.evaluate(() => document.querySelector('form input[name="name"]').value), 'half typed');
+
+  console.log('\ngoals survive the SQLite round-trip:');
+  await open();
+  const storedGoal = await tab.evaluate(() =>
+    globalThis.__app.state().goals.find((g) => g.id === 'gol_1'));
+  check('the goal is still there after a reload', storedGoal?.name, 'First');
+  check('price and priority come back as numbers',
+    [typeof storedGoal?.price, typeof storedGoal?.priority], ['number', 'number']);
+  check('and their values are unchanged', [storedGoal?.price, storedGoal?.priority], [100000, 1]);
 
   /* ---------------- leave nothing behind ---------------- */
   await tab.evaluate(() => globalThis.__app.clearAll());

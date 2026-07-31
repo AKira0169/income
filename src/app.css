@@ -357,6 +357,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .account-balance { font-family: var(--font-mono); font-size: var(--t-lg); margin-top: var(--s2); letter-spacing: -.02em; }
 
 .account-balance.is-negative { color: var(--ink-danger); }
+td.is-negative { color: var(--ink-danger); }
 
 /* Where a balance came from, in the order money moved. */
 .flows { margin-top: var(--s3); border-top: 1px solid var(--rule); padding-top: var(--s2); }

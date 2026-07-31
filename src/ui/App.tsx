@@ -13,6 +13,7 @@ import { Accounts } from './tabs/Accounts.tsx';
 import { Bills } from './tabs/Bills.tsx';
 import { Dashboard } from './tabs/Dashboard.tsx';
 import { Gold } from './tabs/Gold.tsx';
+import { Goals } from './tabs/Goals.tsx';
 import { Income } from './tabs/Income.tsx';
 import { Purchases } from './tabs/Purchases.tsx';
 import { Settings } from './tabs/Settings.tsx';
@@ -23,6 +24,7 @@ const TABS: Readonly<Record<TabId, () => preact.JSX.Element>> = {
   bills: Bills,
   purchases: Purchases,
   savings: Accounts,
+  goals: Goals,
   gold: Gold,
   settings: Settings
 };

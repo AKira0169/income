@@ -23,6 +23,7 @@ const TABS: readonly Tab[] = [
   { id: 'bills', label: 'Bills' },
   { id: 'purchases', label: 'Purchases' },
   { id: 'savings', label: 'Accounts' },
+  { id: 'goals', label: 'Goals' },
   { id: 'gold', label: 'Gold' },
   { id: 'settings', label: 'Settings' }
 ];
