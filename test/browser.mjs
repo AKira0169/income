@@ -378,6 +378,8 @@ try {
   check('and move down puts it back', await goalOrder(), ['First', 'Second']);
   check('move up is disabled on the first goal', await tab.evaluate(() =>
     document.querySelector('button[aria-label="Move First up"]').disabled), true);
+  check('move down is disabled on the last goal', await tab.evaluate(() =>
+    document.querySelector('button[aria-label="Move Second down"]').disabled), true);
 
   /* The same trap the rest of the suite is arranged around: a field rendering
      `value={initial}` instead of `defaultValue` eats what was typed the moment
@@ -395,6 +397,30 @@ try {
   check('the open goal form really did redraw', (await goalOrder()).length, 3);
   check('and the half-typed name is still there',
     await tab.evaluate(() => document.querySelector('form input[name="name"]').value), 'half typed');
+
+  /* The banner is gated on the projection's average, not on month 1 alone — a
+     single lumpy month must not trigger it, but a real, sustained shortfall
+     must. There is no recurring bill in this fixture yet, so the average
+     starts at (or above) zero and the banner is absent; a large recurring one
+     pushes every future month negative and it must appear, then disappear
+     again once deactivated. */
+  console.log('\nthe overspend banner (gated on the average, not one month):');
+  check('no banner while the average surplus is not negative',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
+  await tab.evaluate(() => globalThis.__app.upsert('billTemplates', {
+    id: 'bit_huge', name: 'Huge', category: 'Other', provider: '', frequency: 'Monthly',
+    dueDay: 1, expected: 999999999, accountId: 'acc_t', method: '', active: true,
+    anchor: '', generatedThrough: '', notes: ''
+  }));
+  await settle();
+  check('a sustained shortfall shows the banner',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), true);
+  // __app exposes upsert but not remove; deactivating is enough — occursIn()
+  // skips a template with active: false, same as deleting it for this purpose.
+  await tab.evaluate(() => globalThis.__app.upsert('billTemplates', { id: 'bit_huge', active: false }));
+  await settle();
+  check('and it clears once the shortfall is gone',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
 
   console.log('\ngoals survive the SQLite round-trip:');
   await open();

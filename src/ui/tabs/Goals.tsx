@@ -15,6 +15,7 @@ import { periodLabel, todayISO } from '../../domain/period.ts';
 import {
   forecast, goalForecasts, goalQueue, HORIZON_MONTHS, SPENDING_WINDOW
 } from '../../domain/forecast.ts';
+import { sum } from '../../domain/selectors.ts';
 import { moveGoal, remove, updateSettings, upsert } from '../../state/actions.ts';
 import { app } from '../../state/app.ts';
 import { goTab } from '../../state/route.ts';
@@ -71,6 +72,16 @@ export function Goals() {
   const next = line.months[0];
   const rows = allMonths ? line.months : line.months.slice(0, NEAR_MONTHS);
   const auto = state.settings.forecastSpendingAuto !== false;
+
+  /* The overspend banner reads the whole projection's average, not just next
+     month: a lumpy month — a yearly premium landing once — drags that one
+     month negative without the position actually going backwards, and the
+     projection line itself is never smoothed (that invariant belongs to the
+     engine; this only reads its output). Averaging here is what stops the
+     banner contradicting the goals table right above it. */
+  const avgSurplus = line.months.length
+    ? Math.round(sum(line.months, (m) => m.surplus) / line.months.length)
+    : 0;
 
   const readyBy = (g: GoalForecast): string => {
     if (!(g.goal.price || 0)) return 'add a price';
@@ -153,7 +164,7 @@ export function Goals() {
       <div class="figures">
         <Figure
           label="Spare each month" value={money(next?.surplus ?? 0)}
-          note={(next?.surplus ?? 0) >= 0 ? 'after bills and usual spending' : 'you are short every month'}
+          note={(next?.surplus ?? 0) >= 0 ? 'after bills and usual spending' : 'short next month'}
           negative={(next?.surplus ?? 0) < 0}
         />
         <Figure
@@ -166,11 +177,10 @@ export function Goals() {
         />
       </div>
 
-      {(next?.surplus ?? 0) < 0 ? (
+      {avgSurplus < 0 ? (
         <div class="notice danger">
           <strong>You are spending more than you earn. </strong>
-          {`About ${money(-(next?.surplus ?? 0))} more each month, so nothing is being put aside `
-            + 'and no goal has a date yet.'}
+          {`About ${money(-avgSurplus)} more than comes in each month, averaged across the projection.`}
         </div>
       ) : null}
 
