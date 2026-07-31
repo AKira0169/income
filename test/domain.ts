@@ -8,7 +8,8 @@
    Run:  node test/domain.ts */
 
 import { fourDigit, parse } from '../src/domain/date-parse.ts';
-import { blankState, updateSettings, upsert } from '../src/domain/records.ts';
+import { exportJSON, importJSON } from '../src/domain/backup.ts';
+import { blankState, migrate, updateSettings, upsert } from '../src/domain/records.ts';
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
@@ -155,6 +156,33 @@ check('three writes cost one save', saves, 1);
 commitUpsert('purchases', { id: 'p3', date: '2026-07-03', item: 'Milk', category: 'Groceries', amount: 200, accountId: 'a1', method: 'Cash', notes: '' });
 await Promise.resolve();
 check('a later turn saves again', saves, 2);
+
+/* ---------------- goals are just another collection ---------------- */
+
+/* Every persistence path is generic over COLLECTION_KEYS, so the whole of
+   "adding a collection" is that the generic paths now see it. These check the
+   generic paths really did pick it up rather than that a bespoke one works. */
+console.log('\ngoals are a stored collection:');
+check('a blank state has an empty goals list', blankState().goals, []);
+check('the forecast settings have defaults',
+  [blankState().settings.forecastSpendingAuto, blankState().settings.forecastSpending],
+  [true, 0]);
+check('a save written before goals existed still loads', migrate({ income: [] }).goals, []);
+
+const noGoals = blankState();
+const goalState = upsert(noGoals, 'goals', {
+  name: 'RTX 5080', price: 4500000, priority: 1, boughtDate: '', notes: ''
+}).state;
+check('a new goal gets an id with the goals prefix',
+  goalState.goals[0]?.id.startsWith('gol_'), true);
+check('the state object is replaced rather than edited', goalState === noGoals, false);
+check('and the state it was handed still has no goals', noGoals.goals.length, 0);
+
+const restored = importJSON(exportJSON(goalState)).state;
+check('goals survive a JSON backup and restore', restored.goals, goalState.goals);
+check('price and priority come back as numbers',
+  [typeof restored.goals[0]?.price, typeof restored.goals[0]?.priority],
+  ['number', 'number']);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

@@ -32,7 +32,12 @@ export function blankState(): AppState {
          gap moves, which is why it is a setting and not a constant. */
       goldSync: true,
       goldPremium: 2,
-      goldManualPrice: 0
+      goldManualPrice: 0,
+
+      /* The forecast's assumed monthly purchases. Auto averages the last three
+         complete months; turning it off uses the figure you typed instead. */
+      forecastSpendingAuto: true,
+      forecastSpending: 0
     },
     income: [],
     incomeTemplates: [],
@@ -40,6 +45,7 @@ export function blankState(): AppState {
     bills: [],
     purchases: [],
     accounts: [],
+    goals: [],
     savingsTx: [],
     gold: [],
     goldPrices: []

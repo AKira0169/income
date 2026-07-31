@@ -117,6 +117,7 @@ export const TABLES: TableMap = {
   bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'accountId', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
   purchases: ['id', 'date', 'item', 'category', 'amount', 'accountId', 'method', 'notes'],
   accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
+  goals: ['id', 'name', 'price', 'priority', 'boughtDate', 'notes'],
   savingsTx: ['id', 'date', 'accountId', 'fromAccountId', 'direction', 'amount', 'notes'],
   gold: ['id', 'date', 'direction', 'karat', 'grams', 'pricePerGram', 'amount', 'accountId', 'dealer', 'notes'],
   goldPrices: ['id', 'date', 'usdPerOz', 'egpPerUsd', 'egpPerGram24', 'source', 'fetchedAt']
@@ -127,6 +128,7 @@ const TABLE_NAMES = Object.keys(TABLES) as CollectionKey[];
 /** Anything not named here is TEXT. */
 const TYPES: Readonly<Record<string, string>> = {
   amount: 'INTEGER', expected: 'INTEGER', target: 'INTEGER', opening: 'INTEGER',
+  price: 'INTEGER', priority: 'INTEGER',
   dueDay: 'INTEGER', payDay: 'INTEGER', active: 'INTEGER', units: 'REAL', unitRate: 'REAL',
   karat: 'INTEGER', grams: 'REAL', pricePerGram: 'INTEGER',
   usdPerOz: 'REAL', egpPerUsd: 'REAL', egpPerGram24: 'INTEGER'
