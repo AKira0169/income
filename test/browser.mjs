@@ -430,6 +430,46 @@ try {
   check('and it clears once the shortfall is gone',
     await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
 
+  /* The check above cannot catch a regression to month-1 gating: that fixture's
+     Monthly bill drags month 1 and the average negative together. This one is
+     built to tell them apart — a recurring income gives every month a positive
+     surplus, then a `One-off` bill anchored on month 1 alone outweighs it, so
+     month 1 goes negative while 59 unaffected months keep the average up. Only
+     mean gating can be negative on the figure and silent on the banner at once. */
+  console.log('\nmonth 1 negative but the average is not (mean gating only):');
+  const anchors = await tab.evaluate(() => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return {
+      current: `${now.getFullYear()}-${pad(now.getMonth() + 1)}`,
+      next: `${next.getFullYear()}-${pad(next.getMonth() + 1)}`
+    };
+  });
+  await tab.evaluate((anchor) => globalThis.__app.upsert('incomeTemplates', {
+    id: 'itp_t', source: 'Salary', category: 'Salary', frequency: 'Monthly', payDay: 28,
+    expected: 300000, accountId: 'acc_t', method: '', active: true, anchor,
+    generatedThrough: '', notes: ''
+  }), anchors.current);
+  await tab.evaluate((anchor) => globalThis.__app.upsert('billTemplates', {
+    id: 'bit_lump', name: 'Lump', category: 'Other', provider: '', frequency: 'One-off',
+    dueDay: 1, expected: 400000, accountId: 'acc_t', method: '', active: true, anchor,
+    generatedThrough: '', notes: ''
+  }), anchors.next);
+  await settle();
+  check('the "Spare each month" figure renders negative', await tab.evaluate(() => {
+    const fig = [...document.querySelectorAll('.figure')]
+      .find((f) => f.textContent.includes('Spare each month'));
+    return !!fig && fig.classList.contains('is-negative');
+  }), true);
+  check('while the sustained-average banner stays absent',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
+  await tab.evaluate(() => {
+    globalThis.__app.upsert('incomeTemplates', { id: 'itp_t', active: false });
+    globalThis.__app.upsert('billTemplates', { id: 'bit_lump', active: false });
+  });
+  await settle();
+
   console.log('\ngoals survive the SQLite round-trip:');
   await open();
   const storedGoal = await tab.evaluate(() =>

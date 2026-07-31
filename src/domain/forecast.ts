@@ -79,6 +79,13 @@ export function forecast(state: AppState, opts: ForecastOptions = {}): Forecast 
   );
   const start = cashOnHand(state, startPeriod) - outstanding;
 
+  /* From here down every flow is counted in total, unlike `cashOnHand` above,
+     which sums per account and so drops a row whose accountId names no
+     account or one since deleted. Both are deliberate: the projection is
+     answering "how much cash moves", which an orphaned row still does, while
+     cashOnHand is answering "what does the bank say", which it cannot.
+     Filtering the projection down to known accounts would stop counting a
+     purchase that arguably should still move a forecast. */
   const months: ForecastMonth[] = [];
   let balance = start;
 
@@ -100,13 +107,20 @@ export function forecast(state: AppState, opts: ForecastOptions = {}): Forecast 
 
     let bills = 0;
     for (const b of state.bills) {
-      /* The cash-date guard covers the rare bill filed under a future month but
-         already paid, which cashOnHand has taken off the starting line. */
-      if (b.period !== period || periodOf(billCashDate(b)) <= startPeriod) continue;
+      /* Bucketed by cash date — the same reading cashOnHand takes — not by
+         `period`, the due month, which can disagree with it once a bill is
+         paid early or late. An unpaid bill's cash date is its due date, so the
+         ordinary case is unchanged. `|| b.period` covers a bill with neither
+         date: periodOf('') is '', which would otherwise match no month and
+         drop the bill rather than land it in its own period. */
+      const cashPeriod = periodOf(billCashDate(b)) || b.period;
+      if (cashPeriod !== period) continue;
       bills += b.amount || 0;
     }
     for (const tpl of state.billTemplates) {
       if (!occursIn(tpl, period)) continue;
+      // Suppressed by b.period, the month the occurrence belongs to, even
+      // though its cash is charged above in the month it moved — deliberate.
       if (state.bills.some((b) => b.templateId === tpl.id && b.period === period)) continue;
       bills += tpl.expected || 0;
     }

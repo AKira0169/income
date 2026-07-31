@@ -3,7 +3,7 @@
 import { formatMoney, plural } from '../../domain/money.ts';
 import { periodLabel } from '../../domain/period.ts';
 import { goldSummary } from '../../domain/gold.ts';
-import { forecast, goalForecasts } from '../../domain/forecast.ts';
+import { forecast, goalForecasts, goalQueue } from '../../domain/forecast.ts';
 import {
   accountBalance, billsIn, groupByCategory, incomeIn, purchasesIn, summary,
   totalSavings, trend, upcomingBills
@@ -131,8 +131,8 @@ function AccountsPanel({ state, goldValue, goldGrams }: {
    the real current month, not the month the Dashboard is showing — a forecast
    from a month in the past is meaningless. */
 function GoalsPanel({ state }: { state: AppState }) {
+  if (!goalQueue(state).length) return null;
   const goals: GoalForecast[] = goalForecasts(state, forecast(state));
-  if (!goals.length) return null;
 
   return (
     <Sheet>

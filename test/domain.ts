@@ -275,6 +275,15 @@ check('and far enough out it is exactly the undated total',
 check('omitting the cut-off leaves the old behaviour alone',
   accountBalance(dated, 'a_d'), accountBalance(dated, 'a_d', '9999-12'));
 
+// cashOnHand sums per account, so a row pointing at no account (or one since
+// deleted) lands nowhere — untested until now.
+const orphaned = upsert(dated, 'purchases', {
+  id: 'p_orphan', date: '2026-07-12', item: 'Cash', category: 'Groceries',
+  amount: 999999, accountId: 'nonexistent', method: '', notes: ''
+}).state;
+check('a record pointing at a deleted account contributes nothing to cashOnHand',
+  cashOnHand(orphaned, '2026-07'), 149000 + 50000);
+
 /* ---------------- the cash projection ---------------- */
 
 /* The worked example from the spec, pinned to fixed periods so it never drifts
@@ -341,6 +350,35 @@ entered = upsert(entered, 'bills', { id: 'b_sep', paidDate: '2026-07-15' }).stat
 check('and one already paid is not deducted twice',
   forecast(entered, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.bills,
   0);
+
+/* The outflow-vanishes bug: a bill due before the start but paid later is
+   covered neither by `outstanding` (it's paid) nor by cashOnHand at the
+   starting line (the cash hasn't moved yet) — it must still land somewhere. */
+const lateOutflowLine = forecast(
+  upsert(world, 'bills', {
+    id: 'b_late_paid', name: 'Repair', category: 'Other', provider: '', dueDate: '2026-05-15',
+    amount: 80000, accountId: 'a_f', units: null, unitRate: null, paidDate: '2026-09-02',
+    method: '', notes: ''
+  }).state,
+  { from: FROM, spending: 330000 }
+);
+check('a bill due before the start but paid later is not dropped from the projection',
+  (lateOutflowLine.months.find((m) => m.period === '2026-09')?.bills ?? 0) > 0, true);
+check('and lands in the month it was paid, on top of the regular bills',
+  lateOutflowLine.months.find((m) => m.period === '2026-09')?.bills, 570000 + 80000);
+
+const paidEarlyLine = forecast(
+  upsert(world, 'bills', {
+    id: 'b_paid_early', name: 'Repair', category: 'Other', provider: '', dueDate: '2026-10-15',
+    amount: 45000, accountId: 'a_f', units: null, unitRate: null, paidDate: '2026-08-05',
+    method: '', notes: ''
+  }).state,
+  { from: FROM, spending: 330000 }
+);
+check('a bill due after the start but paid earlier lands in the month it was paid',
+  paidEarlyLine.months.find((m) => m.period === '2026-08')?.bills, 570000 + 45000);
+check('not in the month it was due',
+  paidEarlyLine.months.find((m) => m.period === '2026-10')?.bills, 570000);
 
 const filled = upsert(world, 'income', {
   id: 'i_sep', templateId: 'itp_pay', date: '2026-09-28', source: 'Acme', category: 'Salary',
