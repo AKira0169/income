@@ -14,10 +14,10 @@ import { signal } from '@preact/signals';
 import { currentPeriod } from '../domain/period.ts';
 import type { Period } from '../domain/types.ts';
 
-export type TabId = 'dashboard' | 'income' | 'bills' | 'purchases' | 'savings' | 'gold' | 'settings';
+export type TabId = 'dashboard' | 'income' | 'bills' | 'purchases' | 'savings' | 'goals' | 'gold' | 'settings';
 
 export const TAB_IDS: readonly TabId[] = [
-  'dashboard', 'income', 'bills', 'purchases', 'savings', 'gold', 'settings'
+  'dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings'
 ];
 
 const isTab = (value: string): value is TabId => (TAB_IDS as readonly string[]).includes(value);

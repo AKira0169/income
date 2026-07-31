@@ -3,13 +3,16 @@
 import { formatMoney, plural } from '../../domain/money.ts';
 import { periodLabel } from '../../domain/period.ts';
 import { goldSummary } from '../../domain/gold.ts';
+import { forecast, goalForecasts, goalQueue } from '../../domain/forecast.ts';
 import {
   accountBalance, billsIn, groupByCategory, incomeIn, purchasesIn, summary,
   totalSavings, trend, upcomingBills
 } from '../../domain/selectors.ts';
 import { app } from '../../state/app.ts';
 import { period as routePeriod } from '../../state/route.ts';
-import type { AppState, Bill, Category, Cents, Period, Purchase } from '../../domain/types.ts';
+import type {
+  AppState, Bill, Category, Cents, GoalForecast, Period, Purchase
+} from '../../domain/types.ts';
 import { Figure, TargetProgress } from '../components/Figure.tsx';
 import { Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { Table } from '../components/Table.tsx';
@@ -124,6 +127,42 @@ function AccountsPanel({ state, goldValue, goldGrams }: {
   );
 }
 
+/* What you are saving for and when it lands. The forecast always projects from
+   the real current month, not the month the Dashboard is showing — a forecast
+   from a month in the past is meaningless. */
+function GoalsPanel({ state }: { state: AppState }) {
+  if (!goalQueue(state).length) return null;
+  const goals: GoalForecast[] = goalForecasts(state, forecast(state));
+
+  return (
+    <Sheet>
+      <SheetHead>
+        <h2>Goals</h2>
+        <span class="muted spacer">funded in order</span>
+      </SheetHead>
+      <SheetBody>
+        <div class="stack-tight">
+          {goals.map((g) => (
+            <div key={g.goal.id}>
+              <div class="bar-row">
+                <div class="bar-name">{g.goal.name}</div>
+                <div class="bar-value">
+                  {g.reachedIn
+                    ? periodLabel(g.reachedIn, state.settings.locale)
+                    : (g.goal.price ? 'not yet in sight' : 'no price yet')}
+                </div>
+              </div>
+              <TargetProgress
+                balance={g.saved} target={g.goal.price || 0} settings={state.settings}
+              />
+            </div>
+          ))}
+        </div>
+      </SheetBody>
+    </Sheet>
+  );
+}
+
 export function Dashboard() {
   const state = app.value;
   const period = routePeriod.value;
@@ -216,6 +255,8 @@ export function Dashboard() {
               <AccountsPanel state={state} goldValue={gold.value} goldGrams={gold.grams} />
             </SheetBody>
           </Sheet>
+
+          <GoalsPanel state={state} />
         </div>
       </div>
     </div>

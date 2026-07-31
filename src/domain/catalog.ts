@@ -72,11 +72,12 @@ export const METERED: Readonly<Record<string, string>> = {
 
 export const COLLECTION_KEYS: readonly CollectionKey[] = [
   'income', 'incomeTemplates', 'billTemplates', 'bills', 'purchases',
-  'accounts', 'savingsTx', 'gold', 'goldPrices'
+  'accounts', 'goals', 'savingsTx', 'gold', 'goldPrices'
 ];
 
 /** Id prefixes, so a record's origin is readable in the database. */
 export const ID_PREFIX: Readonly<Record<CollectionKey, string>> = {
   income: 'inc', incomeTemplates: 'itp', billTemplates: 'tpl', bills: 'bil',
-  purchases: 'pur', accounts: 'acc', savingsTx: 'sav', gold: 'gld', goldPrices: 'gpr'
+  purchases: 'pur', accounts: 'acc', goals: 'gol', savingsTx: 'sav',
+  gold: 'gld', goldPrices: 'gpr'
 };

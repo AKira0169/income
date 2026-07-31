@@ -73,7 +73,7 @@ try {
   check('sqlite reached IndexedDB, not the memory fallback',
     await tab.evaluate(() => globalThis.__app.backend()), 'indexeddb');
   check('every tab renders',
-    await tab.evaluate(() => document.querySelectorAll('.tab').length), 7);
+    await tab.evaluate(() => document.querySelectorAll('.tab').length), 8);
 
   /* ---------------- hash routing ---------------- */
   console.log('\nhash routing (reload and back/forward):');
@@ -305,7 +305,7 @@ try {
     a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
   });
 
-  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'gold', 'settings']) {
+  for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings']) {
     await tab.evaluate((t) => globalThis.__app.goTab(t), id);
     await settle();
     check(`${id} renders something`, await tab.evaluate(() =>
@@ -350,6 +350,134 @@ try {
   }), 'refused');
   check('the delete really did not happen',
     await tab.evaluate(() => globalThis.__app.state().income.length), 1);
+
+  /* ---------------- goals: ordering, the form, and SQLite ---------------- */
+  console.log('\nthe Goals tab:');
+  await tab.evaluate(() => {
+    const a = globalThis.__app;
+    a.upsert('goals', { id: 'gol_1', name: 'First', price: 100000, priority: 1, boughtDate: '', notes: '' });
+    a.upsert('goals', { id: 'gol_2', name: 'Second', price: 200000, priority: 2, boughtDate: '', notes: '' });
+  });
+  await tab.evaluate(() => globalThis.__app.goTab('goals'));
+  await settle();
+
+  // The goals table is the first table on the tab; column 1 is the name cell.
+  const goalOrder = () => tab.evaluate(() => [...document.querySelectorAll('main table')[0]
+    .querySelectorAll('tbody tr')].map((r) => r.children[1].textContent));
+
+  check('the Goals tab renders the queue', await goalOrder(), ['First', 'Second']);
+
+  await tab.evaluate(() => document
+    .querySelector('button[aria-label="Move Second up"]').click());
+  await settle();
+  check('move up reorders the queue', await goalOrder(), ['Second', 'First']);
+
+  await tab.evaluate(() => document
+    .querySelector('button[aria-label="Move Second down"]').click());
+  await settle();
+  check('and move down puts it back', await goalOrder(), ['First', 'Second']);
+  check('move up is disabled on the first goal', await tab.evaluate(() =>
+    document.querySelector('button[aria-label="Move First up"]').disabled), true);
+  check('move down is disabled on the last goal', await tab.evaluate(() =>
+    document.querySelector('button[aria-label="Move Second down"]').disabled), true);
+
+  await tab.evaluate(() => globalThis.__app.goTab('dashboard'));
+  await settle();
+  check('the Dashboard shows a Goals panel once there are goals',
+    await tab.evaluate(() => [...document.querySelectorAll('main .sheet h2')]
+      .some((h) => h.textContent === 'Goals')), true);
+  await tab.evaluate(() => globalThis.__app.goTab('goals'));
+  await settle();
+
+  /* The same trap the rest of the suite is arranged around: a field rendering
+     `value={initial}` instead of `defaultValue` eats what was typed the moment
+     anything else redraws the page. */
+  await tab.evaluate(() => {
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Add a goal');
+    btn.click();
+  });
+  await tab.waitForSelector('form input[name="name"]');
+  await tab.evaluate(() => { document.querySelector('form input[name="name"]').value = 'half typed'; });
+  await tab.evaluate(() => globalThis.__app.upsert('goals', {
+    id: 'gol_3', name: 'Distraction', price: 0, priority: 3, boughtDate: '', notes: ''
+  }));
+  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+  check('the open goal form really did redraw', (await goalOrder()).length, 3);
+  check('and the half-typed name is still there',
+    await tab.evaluate(() => document.querySelector('form input[name="name"]').value), 'half typed');
+
+  /* The banner is gated on the projection's average, not on month 1 alone — a
+     single lumpy month must not trigger it, but a real, sustained shortfall
+     must. There is no recurring bill in this fixture yet, so the average
+     starts at (or above) zero and the banner is absent; a large recurring one
+     pushes every future month negative and it must appear, then disappear
+     again once deactivated. */
+  console.log('\nthe overspend banner (gated on the average, not one month):');
+  check('no banner while the average surplus is not negative',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
+  await tab.evaluate(() => globalThis.__app.upsert('billTemplates', {
+    id: 'bit_huge', name: 'Huge', category: 'Other', provider: '', frequency: 'Monthly',
+    dueDay: 1, expected: 999999999, accountId: 'acc_t', method: '', active: true,
+    anchor: '', generatedThrough: '', notes: ''
+  }));
+  await settle();
+  check('a sustained shortfall shows the banner',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), true);
+  // __app exposes upsert but not remove; deactivating is enough — occursIn()
+  // skips a template with active: false, same as deleting it for this purpose.
+  await tab.evaluate(() => globalThis.__app.upsert('billTemplates', { id: 'bit_huge', active: false }));
+  await settle();
+  check('and it clears once the shortfall is gone',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
+
+  /* The check above cannot catch a regression to month-1 gating: that fixture's
+     Monthly bill drags month 1 and the average negative together. This one is
+     built to tell them apart — a recurring income gives every month a positive
+     surplus, then a `One-off` bill anchored on month 1 alone outweighs it, so
+     month 1 goes negative while 59 unaffected months keep the average up. Only
+     mean gating can be negative on the figure and silent on the banner at once. */
+  console.log('\nmonth 1 negative but the average is not (mean gating only):');
+  const anchors = await tab.evaluate(() => {
+    const pad = (n) => String(n).padStart(2, '0');
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return {
+      current: `${now.getFullYear()}-${pad(now.getMonth() + 1)}`,
+      next: `${next.getFullYear()}-${pad(next.getMonth() + 1)}`
+    };
+  });
+  await tab.evaluate((anchor) => globalThis.__app.upsert('incomeTemplates', {
+    id: 'itp_t', source: 'Salary', category: 'Salary', frequency: 'Monthly', payDay: 28,
+    expected: 300000, accountId: 'acc_t', method: '', active: true, anchor,
+    generatedThrough: '', notes: ''
+  }), anchors.current);
+  await tab.evaluate((anchor) => globalThis.__app.upsert('billTemplates', {
+    id: 'bit_lump', name: 'Lump', category: 'Other', provider: '', frequency: 'One-off',
+    dueDay: 1, expected: 400000, accountId: 'acc_t', method: '', active: true, anchor,
+    generatedThrough: '', notes: ''
+  }), anchors.next);
+  await settle();
+  check('the "Spare each month" figure renders negative', await tab.evaluate(() => {
+    const fig = [...document.querySelectorAll('.figure')]
+      .find((f) => f.textContent.includes('Spare each month'));
+    return !!fig && fig.classList.contains('is-negative');
+  }), true);
+  check('while the sustained-average banner stays absent',
+    await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
+  await tab.evaluate(() => {
+    globalThis.__app.upsert('incomeTemplates', { id: 'itp_t', active: false });
+    globalThis.__app.upsert('billTemplates', { id: 'bit_lump', active: false });
+  });
+  await settle();
+
+  console.log('\ngoals survive the SQLite round-trip:');
+  await open();
+  const storedGoal = await tab.evaluate(() =>
+    globalThis.__app.state().goals.find((g) => g.id === 'gol_1'));
+  check('the goal is still there after a reload', storedGoal?.name, 'First');
+  check('price and priority come back as numbers',
+    [typeof storedGoal?.price, typeof storedGoal?.priority], ['number', 'number']);
+  check('and their values are unchanged', [storedGoal?.price, storedGoal?.priority], [100000, 1]);
 
   /* ---------------- leave nothing behind ---------------- */
   await tab.evaluate(() => globalThis.__app.clearAll());

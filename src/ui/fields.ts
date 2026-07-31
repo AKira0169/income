@@ -99,6 +99,12 @@ export const FIELDS = {
     { key: 'target', label: 'Target (optional)', type: 'money' },
     { key: 'notes', label: 'Notes', type: 'text', wide: true }
   ],
+  goal: [
+    { key: 'name', label: 'What you want', type: 'text', placeholder: 'e.g. RTX 5080', required: true },
+    { key: 'price', label: 'Price', type: 'money', placeholder: 'Leave empty if you do not know yet' },
+    { key: 'boughtDate', label: 'Bought on', type: 'date' },
+    { key: 'notes', label: 'Notes', type: 'text', wide: true }
+  ],
   gold: [
     { key: 'date', label: 'Date', type: 'date', required: true, def: todayISO },
     {

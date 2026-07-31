@@ -8,10 +8,15 @@
    Run:  node test/domain.ts */
 
 import { fourDigit, parse } from '../src/domain/date-parse.ts';
-import { blankState, updateSettings, upsert } from '../src/domain/records.ts';
+import { exportJSON, importJSON } from '../src/domain/backup.ts';
+import { blankState, migrate, updateSettings, upsert } from '../src/domain/records.ts';
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
+import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
+import {
+  assumedSpending, forecast, goalForecasts, goalQueue, HORIZON_MONTHS, moveGoal
+} from '../src/domain/forecast.ts';
 import type { AppState } from '../src/domain/types.ts';
 
 let failures = 0;
@@ -155,6 +160,338 @@ check('three writes cost one save', saves, 1);
 commitUpsert('purchases', { id: 'p3', date: '2026-07-03', item: 'Milk', category: 'Groceries', amount: 200, accountId: 'a1', method: 'Cash', notes: '' });
 await Promise.resolve();
 check('a later turn saves again', saves, 2);
+
+/* ---------------- goals are just another collection ---------------- */
+
+/* Every persistence path is generic over COLLECTION_KEYS, so the whole of
+   "adding a collection" is that the generic paths now see it. These check the
+   generic paths really did pick it up rather than that a bespoke one works. */
+console.log('\ngoals are a stored collection:');
+check('a blank state has an empty goals list', blankState().goals, []);
+check('the forecast settings have defaults',
+  [blankState().settings.forecastSpendingAuto, blankState().settings.forecastSpending],
+  [true, 0]);
+check('a save written before goals existed still loads', migrate({ income: [] }).goals, []);
+
+const noGoals = blankState();
+const goalState = upsert(noGoals, 'goals', {
+  name: 'RTX 5080', price: 4500000, priority: 1, boughtDate: '', notes: ''
+}).state;
+check('a new goal gets an id with the goals prefix',
+  goalState.goals[0]?.id.startsWith('gol_'), true);
+check('the state object is replaced rather than edited', goalState === noGoals, false);
+check('and the state it was handed still has no goals', noGoals.goals.length, 0);
+
+const restored = importJSON(exportJSON(goalState)).state;
+check('goals survive a JSON backup and restore', restored.goals, goalState.goals);
+check('price and priority come back as numbers',
+  [typeof restored.goals[0]?.price, typeof restored.goals[0]?.priority],
+  ['number', 'number']);
+
+/* ---------------- balances as of a month ---------------- */
+
+/* The fixture puts records deliberately on both sides of a 2026-07 cut-off.
+   The far-future invariant below passes even when the date filter is wrong in
+   every other case, so the hand-computed figure is the test that discriminates
+   and the invariant is what pins the two readings together. */
+console.log('\nbalances as of a month:');
+let dated: AppState = upsert(blankState(), 'accounts', {
+  id: 'a_d', name: 'Card', type: 'Current Account', opening: 100000, target: 0, notes: ''
+}).state;
+dated = upsert(dated, 'income', {
+  id: 'i_now', date: '2026-07-05', source: 'Salary', category: 'Salary',
+  amount: 50000, accountId: 'a_d', method: '', notes: ''
+}).state;
+dated = upsert(dated, 'income', {
+  id: 'i_later', date: '2026-09-05', source: 'Salary', category: 'Salary',
+  amount: 70000, accountId: 'a_d', method: '', notes: ''
+}).state;
+dated = upsert(dated, 'purchases', {
+  id: 'p_now', date: '2026-07-09', item: 'Tea', category: 'Groceries',
+  amount: 1000, accountId: 'a_d', method: '', notes: ''
+}).state;
+// Due in June, paid in August: cash left the account in August, not June.
+dated = upsert(dated, 'bills', {
+  id: 'b_late', name: 'Water', category: 'Water', provider: '', dueDate: '2026-06-10',
+  amount: 3000, accountId: 'a_d', units: null, unitRate: null, paidDate: '2026-08-02',
+  method: '', notes: ''
+}).state;
+// Paid, but with no paid date recorded. periodOf('') is '', which sorts before
+// every real period — this must fall under its due date instead.
+dated = upsert(dated, 'bills', {
+  id: 'b_nodate', name: 'Internet', category: 'Internet', provider: '', dueDate: '2026-09-10',
+  amount: 2000, accountId: 'a_d', units: null, unitRate: null, paidDate: '',
+  method: '', notes: ''
+}).state;
+dated = { ...dated, bills: dated.bills.map((b) => (b.id === 'b_nodate' ? { ...b, status: 'paid' } : b)) };
+
+// Second account with its own opening balance, to test multi-account summation.
+dated = upsert(dated, 'accounts', {
+  id: 'a_s', name: 'Savings', type: 'Savings', opening: 50000, target: 0, notes: ''
+}).state;
+
+// Transfer between accounts dated after the July cut-off: neither the total nor
+// each account's balance at 2026-07 should change.
+dated = upsert(dated, 'savingsTx', {
+  id: 'tx_xfer', date: '2026-08-15', direction: 'transfer', amount: 10000,
+  accountId: 'a_s', fromAccountId: 'a_d', notes: ''
+}).state;
+
+// Gold buy, also after the July cut-off. A buy is cash out, stored net, so a
+// positive flows.gold means gold has cost the account.
+dated = upsert(dated, 'gold', {
+  id: 'g_buy', date: '2026-08-10', karat: 24, grams: 5, direction: 'buy',
+  amount: 5000, accountId: 'a_d', pricePerGram: 1000, dealer: '', notes: ''
+}).state;
+
+check('the cash date of a bill paid late is the date it was paid',
+  billCashDate({ dueDate: '2026-06-10', paidDate: '2026-08-02' }), '2026-08-02');
+check('and a paid bill with no paid date falls under its due date',
+  billCashDate({ dueDate: '2026-09-10', paidDate: '' }), '2026-09-10');
+
+// 100,000 opening + 50,000 July income − 1,000 July purchase. The September
+// income, the bill paid in August and the bill dated September are all after.
+check('the balance as of July is hand-computable',
+  accountBalance(dated, 'a_d', '2026-07'), 149000);
+// Transfer and gold are both in August, so they're excluded at July cut-off.
+// At September, they're included: 149k + 70k income - 3k bill - 10k transfer - 5k gold - 2k bill.
+check('the September income is excluded until September',
+  accountBalance(dated, 'a_d', '2026-09'), 149000 + 70000 - 3000 - 10000 - 5000 - 2000);
+// August includes the bill payment and the transfer and gold, all of which take
+// money out (transfer is -10k, gold is -5k).
+check('a bill paid late counts in the month it was paid, not the month it was due',
+  accountBalance(dated, 'a_d', '2026-08'), 149000 - 3000 - 10000 - 5000);
+
+check('cash on hand adds every account together',
+  cashOnHand(dated, '2026-07'), 149000 + 50000);
+check('and a transfer moves money between accounts once the cut-off is past',
+  accountBalance(dated, 'a_d', '2026-08'), 131000);
+check('leaving the other account with the transfer in',
+  accountBalance(dated, 'a_s', '2026-08'), 50000 + 10000);
+check('but the total is unchanged by the transfer (it is internal)',
+  cashOnHand(dated, '2026-08'), 131000 + 60000);
+check('and far enough out it is exactly the undated total',
+  cashOnHand(dated, '9999-12'), totalSavings(dated));
+check('omitting the cut-off leaves the old behaviour alone',
+  accountBalance(dated, 'a_d'), accountBalance(dated, 'a_d', '9999-12'));
+
+// cashOnHand sums per account, so a row pointing at no account (or one since
+// deleted) lands nowhere — untested until now.
+const orphaned = upsert(dated, 'purchases', {
+  id: 'p_orphan', date: '2026-07-12', item: 'Cash', category: 'Groceries',
+  amount: 999999, accountId: 'nonexistent', method: '', notes: ''
+}).state;
+check('a record pointing at a deleted account contributes nothing to cashOnHand',
+  cashOnHand(orphaned, '2026-07'), 149000 + 50000);
+
+/* ---------------- the cash projection ---------------- */
+
+/* The worked example from the spec, pinned to fixed periods so it never drifts
+   with the real calendar: salary 18,000, four monthly bills totalling 5,700, a
+   9,000 insurance premium every January, usual purchases 3,300. Accounts hold
+   12,000 with 1,400 of bills unpaid, so the line starts at 10,600. */
+console.log('\nthe cash projection:');
+const FROM = '2026-07';
+
+let world: AppState = upsert(blankState(), 'accounts', {
+  id: 'a_f', name: 'Card', type: 'Current Account', opening: 1200000, target: 0, notes: ''
+}).state;
+world = upsert(world, 'incomeTemplates', {
+  id: 'itp_pay', source: 'Acme', category: 'Salary', frequency: 'Monthly', payDay: 28,
+  expected: 1800000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+world = upsert(world, 'billTemplates', {
+  id: 'tpl_fixed', name: 'Fixed bills', category: 'Rent', provider: '', frequency: 'Monthly',
+  dueDay: 1, expected: 570000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+world = upsert(world, 'billTemplates', {
+  id: 'tpl_ins', name: 'Insurance', category: 'Insurance', provider: '', frequency: 'Yearly',
+  dueDay: 15, expected: 900000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+// Unpaid and dated in the starting month: a commitment the bank has not taken.
+world = upsert(world, 'bills', {
+  id: 'b_out', name: 'Mobile', category: 'Mobile', provider: '', dueDate: '2026-07-20',
+  amount: 140000, accountId: 'a_f', units: null, unitRate: null, paidDate: '', method: '', notes: ''
+}).state;
+
+const line = forecast(world, { from: FROM, spending: 330000 });
+
+check('the starting line subtracts unpaid bills dated in or before this month',
+  [line.start, line.outstanding], [1060000, 140000]);
+check('the projection never includes the starting month', line.months[0]?.period, '2026-08');
+check('and runs to the horizon', line.months.length, HORIZON_MONTHS);
+
+const at = (period: string) => line.months.find((m) => m.period === period);
+check('a plain month is income less bills less spending',
+  [at('2026-08')?.bills, at('2026-08')?.surplus, at('2026-08')?.balance],
+  [570000, 900000, 1960000]);
+check('the yearly premium lands in January and nowhere else',
+  [at('2026-12')?.bills, at('2027-01')?.bills, at('2027-02')?.bills],
+  [570000, 1470000, 570000]);
+check('so January eats the whole surplus', at('2027-01')?.surplus, 0);
+check('and November is where 45,000 is first covered',
+  line.months.find((m) => m.balance >= 4500000)?.period, '2026-11');
+
+/* A hand-entered future bill must not also be projected from its template, and
+   one already paid must not be deducted a second time — cashOnHand has it. */
+let entered = upsert(world, 'bills', {
+  id: 'b_sep', templateId: 'tpl_fixed', name: 'Fixed bills', category: 'Rent', provider: '',
+  dueDate: '2026-09-01', amount: 600000, accountId: 'a_f', units: null, unitRate: null,
+  paidDate: '', method: '', notes: ''
+}).state;
+check('a hand-entered future bill replaces its template, it does not add to it',
+  forecast(entered, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.bills,
+  600000);
+
+entered = upsert(entered, 'bills', { id: 'b_sep', paidDate: '2026-07-15' }).state;
+check('and one already paid is not deducted twice',
+  forecast(entered, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.bills,
+  0);
+
+/* The outflow-vanishes bug: a bill due before the start but paid later is
+   covered neither by `outstanding` (it's paid) nor by cashOnHand at the
+   starting line (the cash hasn't moved yet) — it must still land somewhere. */
+const lateOutflowLine = forecast(
+  upsert(world, 'bills', {
+    id: 'b_late_paid', name: 'Repair', category: 'Other', provider: '', dueDate: '2026-05-15',
+    amount: 80000, accountId: 'a_f', units: null, unitRate: null, paidDate: '2026-09-02',
+    method: '', notes: ''
+  }).state,
+  { from: FROM, spending: 330000 }
+);
+check('a bill due before the start but paid later is not dropped from the projection',
+  (lateOutflowLine.months.find((m) => m.period === '2026-09')?.bills ?? 0) > 0, true);
+check('and lands in the month it was paid, on top of the regular bills',
+  lateOutflowLine.months.find((m) => m.period === '2026-09')?.bills, 570000 + 80000);
+
+const paidEarlyLine = forecast(
+  upsert(world, 'bills', {
+    id: 'b_paid_early', name: 'Repair', category: 'Other', provider: '', dueDate: '2026-10-15',
+    amount: 45000, accountId: 'a_f', units: null, unitRate: null, paidDate: '2026-08-05',
+    method: '', notes: ''
+  }).state,
+  { from: FROM, spending: 330000 }
+);
+check('a bill due after the start but paid earlier lands in the month it was paid',
+  paidEarlyLine.months.find((m) => m.period === '2026-08')?.bills, 570000 + 45000);
+check('not in the month it was due',
+  paidEarlyLine.months.find((m) => m.period === '2026-10')?.bills, 570000);
+
+const filled = upsert(world, 'income', {
+  id: 'i_sep', templateId: 'itp_pay', date: '2026-09-28', source: 'Acme', category: 'Salary',
+  amount: 1900000, accountId: 'a_f', method: '', notes: ''
+}).state;
+check('a hand-filled month is counted once, not twice',
+  forecast(filled, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.income,
+  1900000);
+
+/* ---------------- assumed spending ---------------- */
+
+console.log('\nassumed spending:');
+check('no purchases at all is 0, not NaN', assumedSpending(blankState(), FROM), 0);
+
+let spent: AppState = blankState();
+for (const [id, date, amount] of [
+  ['s1', '2026-04-04', 300000],   // outside the three-month window
+  ['s2', '2026-05-04', 600000],
+  ['s3', '2026-06-04', 300000],
+  ['s4', '2026-07-04', 999999]    // the current month, still running
+] as const) {
+  spent = upsert(spent, 'purchases', {
+    id, date, item: 'Shop', category: 'Groceries', amount, accountId: '', method: '', notes: ''
+  }).state;
+}
+// April, May and June: (300,000 + 600,000 + 300,000) / 3. July is ignored.
+check('the last three complete months are averaged and the current one ignored',
+  assumedSpending(spent, FROM), 400000);
+
+let young: AppState = upsert(blankState(), 'purchases', {
+  id: 's5', date: '2026-06-04', item: 'Shop', category: 'Groceries',
+  amount: 300000, accountId: '', method: '', notes: ''
+}).state;
+check('a younger database divides by fewer months', assumedSpending(young, FROM), 300000);
+young = upsert(young, 'purchases', {
+  id: 's6', date: '2026-07-20', item: 'Shop', category: 'Groceries',
+  amount: 900000, accountId: '', method: '', notes: ''
+}).state;
+check('and purchases only in the current month still average to 0',
+  assumedSpending(upsert(blankState(), 'purchases', {
+    id: 's7', date: '2026-07-20', item: 'Shop', category: 'Groceries',
+    amount: 900000, accountId: '', method: '', notes: ''
+  }).state, FROM), 0);
+check('the younger figure is unchanged by a purchase in the current month',
+  assumedSpending(young, FROM), 300000);
+
+/* ---------------- goals, funded in order ---------------- */
+
+/* Reuses the worked example: the line starts at 10,600 and gains 9,000 a month
+   apart from the January insurance month. 45,000 lands in November; a second
+   goal of 20,000 needs 65,000, which the January premium pushes out to March. */
+console.log('\ngoals, funded in order:');
+let planned = world;
+for (const [id, name, price, priority] of [
+  ['gol_a', 'RTX 5080', 4500000, 1],
+  ['gol_b', 'New phone', 2000000, 2]
+] as const) {
+  planned = upsert(planned, 'goals', { id, name, price, priority, boughtDate: '', notes: '' }).state;
+}
+
+const plannedLine = forecast(planned, { from: FROM, spending: 330000 });
+const [first, second] = goalForecasts(planned, plannedLine);
+
+check('the first goal needs only its own price', [first?.reserved, first?.threshold], [0, 4500000]);
+check('and lands in November', [first?.reachedIn, first?.monthsAway], ['2026-11', 4]);
+check('the second reserves the first price on top of its own',
+  [second?.reserved, second?.threshold], [4500000, 6500000]);
+check('so the January premium pushes it to March', second?.reachedIn, '2027-03');
+check('progress is measured against the goal\'s own price',
+  [first?.saved, Math.round((first?.progress ?? 0) * 100)], [1060000, 24]);
+check('and a goal with nothing yet saved reads 0', [second?.saved, second?.progress], [0, 0]);
+
+const priced = upsert(planned, 'goals', {
+  id: 'gol_none', name: 'Something', price: 0, priority: 0, boughtDate: '', notes: ''
+}).state;
+const withoutPrice = goalForecasts(priced, forecast(priced, { from: FROM, spending: 330000 }));
+check('a goal with no price gets no date', [withoutPrice[0]?.reachedIn, withoutPrice[0]?.monthsAway], ['', null]);
+check('and never blocks a goal behind it', withoutPrice[1]?.threshold, 4500000);
+
+const broke = goalForecasts(planned, forecast(planned, { from: FROM, spending: 3300000 }));
+check('a negative surplus yields no date, not a date far away',
+  [broke[0]?.reachedIn, broke[0]?.monthsAway], ['', null]);
+
+const cheap = upsert(planned, 'goals', {
+  id: 'gol_now', name: 'A cable', price: 100000, priority: -1, boughtDate: '', notes: ''
+}).state;
+const affordable = goalForecasts(cheap, forecast(cheap, { from: FROM, spending: 330000 }));
+check('a goal you can already afford is 0 months away',
+  [affordable[0]?.reachedIn, affordable[0]?.monthsAway], [FROM, 0]);
+
+const bought = upsert(planned, 'goals', { id: 'gol_a', boughtDate: '2026-11-04' }).state;
+check('a bought goal drops out of the funding queue',
+  goalQueue(bought).map((g) => g.id), ['gol_b']);
+// readAll() returns SQL NULL as null, so the test has to be falsy, not === ''.
+const nulled = { ...planned, goals: planned.goals.map((g) => ({ ...g, boughtDate: null as unknown as '' })) };
+check('and a null bought date read back off SQLite still counts as unbought',
+  goalQueue(nulled).length, 2);
+
+/* ---------------- reordering the queue ---------------- */
+
+console.log('\nreordering the funding queue:');
+const moved = moveGoal(planned, 'gol_b', -1);
+check('moving up swaps the pair in one new state', goalQueue(moved).map((g) => g.id), ['gol_b', 'gol_a']);
+check('the state object is replaced', moved === planned, false);
+check('and the original is untouched', goalQueue(planned).map((g) => g.id), ['gol_a', 'gol_b']);
+check('moving down returns it', goalQueue(moveGoal(moved, 'gol_b', 1)).map((g) => g.id), ['gol_a', 'gol_b']);
+// Identity, not deep equality: a no-op must hand back the very same object, or
+// the signal redraws and the database is rewritten for nothing.
+check('moving up from the top is a no-op', moveGoal(planned, 'gol_a', -1) === planned, true);
+check('moving down from the bottom is a no-op', moveGoal(planned, 'gol_b', 1) === planned, true);
+check('moving a goal that is not in the queue is a no-op',
+  moveGoal(planned, 'nope', 1) === planned, true);
+check('a delta of zero is a no-op too', moveGoal(planned, 'gol_a', 0) === planned, true);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

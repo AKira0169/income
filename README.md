@@ -45,6 +45,7 @@ if you move the folder — the shortcut stores absolute paths.
 | **Bills & Utilities** | Set up each recurring bill once (electricity, water, gas, internet, mobile, rent, council tax, insurance, subscriptions…) and every month fills itself in, pre-filled with the typical amount, ready for you to correct to what you were actually charged. |
 | **Purchases** | One-off spending — groceries, fuel, clothes, electronics, travel. |
 | **Accounts** | Every place money sits: the card the salary lands on, the one you save into, cash, pots with targets. Each card shows where its balance came from — income in, purchases and paid bills out, transfers between them. |
+| **Goals** | What you are saving up for, and the month you will be able to afford each one. Funded in order: the second goal starts once the first is covered. Also answers the other half of the question — how much you will have in any month over the next five years. |
 | **Gold** | Grams held by karat, valued against the live Egyptian price, with what you paid beside what it is worth now. |
 | **Settings** | Currency, number format, savings goal, backup/restore, erase. |
 
@@ -83,6 +84,40 @@ withdrawal, and taking it off early would make the figure disagree with the bank
 
 Set the account once on a *recurring* income or bill and every month it generates
 carries it too.
+
+### Goals and when you can afford them
+
+The Goals tab answers two questions off one projection: **when will I have
+enough**, and **how much will I have** by a given month.
+
+Each future month is worth:
+
+```
+surplus = recurring income − recurring bills − usual purchases (+ anything else recorded)
+balance = the month before it + surplus
+```
+
+The line starts at every account added together as it stands today, less the
+bills you have been sent and not yet paid — those are commitments the bank has
+not taken yet, so a forecast that ignored them would flatter you by exactly that
+amount.
+
+Three things make the answer honest:
+
+- **Bills are charged in the month they are really due.** A yearly insurance
+  premium lands in one month and nowhere else; nothing is spread across twelve.
+  It is why a goal can land in March rather than February.
+- **Usual purchases** are the average of your last three complete months —
+  the current month is still running, so counting it would drag the figure down.
+  You can type your own figure instead.
+- **Goals are funded in order.** The second goal's target is its own price plus
+  the first one's, so its date accounts for buying the first. Move a goal up or
+  down the list to change what you buy first. A goal with no price yet never
+  blocks the ones behind it.
+
+Nothing here writes anything: the forecast reads your recurring set-up and
+returns numbers. Marking a goal as bought files it under **Bought** with the
+date, and the queue closes up behind it.
 
 ### Gold
 

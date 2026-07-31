@@ -40,6 +40,10 @@ export interface Settings {
   goldPremium: number;
   /** A price read off a shop board; overrides syncing entirely when > 0. */
   goldManualPrice: Cents;
+  /** Average the last few months' purchases rather than using a typed figure. */
+  forecastSpendingAuto: boolean;
+  /** The monthly purchases figure the forecast uses when auto is off. */
+  forecastSpending: Cents;
 }
 
 /** Fields shared by the two recurring definitions. */
@@ -124,6 +128,25 @@ export interface Account {
   notes: string;
 }
 
+/** Something you are saving up for. */
+export interface Goal {
+  id: Id;
+  name: string;
+  /** 0 when you do not know the price yet. */
+  price: Cents;
+  /* `priority`, not `order`: the schema quotes every identifier so `order`
+     would in fact work, but the SQL-keyword trap is not worth leaving. */
+  /** Funding order, ascending. */
+  priority: number;
+  /* A date rather than a `bought` boolean: readAll() coerces only the literal
+     column `active` back into a boolean, so a new boolean field would come back
+     as 0/1 and contradict its own type. It also matches how Bill derives
+     `status` from `paidDate`, and records *when* you bought it. */
+  /** Set when you actually bought it; empty means still saving. */
+  boughtDate: IsoDate | '';
+  notes: string;
+}
+
 export interface SavingsTx {
   id: Id;
   date: IsoDate;
@@ -169,6 +192,7 @@ export interface Collections {
   bills: Bill[];
   purchases: Purchase[];
   accounts: Account[];
+  goals: Goal[];
   savingsTx: SavingsTx[];
   gold: GoldEntry[];
   goldPrices: GoldPrice[];
@@ -214,6 +238,56 @@ export interface MonthSummary {
   savedNet: Cents;
   /** A fraction, not a percent: 0.2 is 20%. */
   savingsRate: number;
+}
+
+/** One month of the cash projection. */
+export interface ForecastMonth {
+  period: Period;
+  income: Cents;
+  bills: Cents;
+  spending: Cents;
+  /** Gold and outside movements already recorded for this month; signed. */
+  other: Cents;
+  surplus: Cents;
+  /** Money on hand at the end of this month. */
+  balance: Cents;
+}
+
+export interface ForecastOptions {
+  /** Defaults to currentPeriod(). */
+  from?: Period;
+  /** How many future months. Defaults to HORIZON_MONTHS. */
+  months?: number;
+  /** Overrides forecastSpending(state). */
+  spending?: Cents;
+}
+
+export interface Forecast {
+  startPeriod: Period;
+  /** cashOnHand at startPeriod, less `outstanding`. */
+  start: Cents;
+  /** Unpaid bills dated in startPeriod or earlier. */
+  outstanding: Cents;
+  /** The assumed monthly purchases actually used. */
+  spending: Cents;
+  /** One row per future month, oldest first. Never includes startPeriod. */
+  months: ForecastMonth[];
+}
+
+export interface GoalForecast {
+  goal: Goal;
+  /** Total price of the goals ahead of this one. */
+  reserved: Cents;
+  /** reserved + goal.price — the balance this goal needs. */
+  threshold: Cents;
+  /** Already yours toward this goal: start − reserved, floored at 0, capped at price. */
+  saved: Cents;
+  /** 0..1 against this goal's own price. Always 0 when price is 0. */
+  progress: number;
+  /** First month whose balance reaches `threshold`; '' if never inside the horizon. */
+  reachedIn: Period | '';
+  /** Months from startPeriod, 0 meaning affordable now; null when reachedIn is ''. */
+  monthsAway: number | null;
 }
 
 /** Which way a movement pushes money relative to your savings. */
