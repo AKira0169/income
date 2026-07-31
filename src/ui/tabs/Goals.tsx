@@ -44,8 +44,12 @@ const HORIZON_YEARS = Math.round(HORIZON_MONTHS / 12);
    the edge, and no more, because everything drawn past it is empty paper above
    the top band — the plot is about the goals, not about the far future. */
 const PLOT_TAIL = 1;
-/** Never draw a plot shorter than this, however soon the last goal lands. */
-const PLOT_MIN_MONTHS = 6;
+/* Two months is the shortest plot worth drawing, and it is deliberately short.
+   The vertical scale runs to the balance at the end, so every month drawn past
+   the last goal pushes the ceiling further up and squashes the bands — which is
+   how a goal a month away ends up as a sliver under an empty top half. The plot
+   stops just after the last goal for that reason. */
+const PLOT_MIN_MONTHS = 2;
 /** A band shorter than this cannot hold its name without clipping it. */
 const BAND_LABEL_MIN = 9;
 
@@ -117,12 +121,21 @@ function GoalPlot({ line, goals, settings }: {
     .map((g, i) => ({ g, rank: i + 1 }))
     .filter((b) => (b.g.goal.price || 0) > 0);
   const reach = priced.filter((b) => b.g.monthsAway !== null).map((b) => b.g);
+  const beyond = priced.filter((b) => b.g.monthsAway === null).map((b) => b.g);
   const last = reach.reduce((max, g) => Math.max(max, g.monthsAway ?? 0), 0);
+
+  /* `last` is 0 for two opposite situations, and they want opposite plots. If
+     nothing is reachable there is no landing to stop at, so the plot runs the
+     near months to show the climb toward the goals that are off the top. If
+     everything is already covered there is no "when" left to draw at all —
+     drawing it anyway sets the ceiling twelve months of surplus above bands
+     that are all below today's balance, which is the sliver this plot exists
+     to avoid. The tab leaves the panel out in that case. */
   const span = Math.min(
     line.months.length,
-    Math.max(PLOT_MIN_MONTHS, last ? last + PLOT_TAIL : NEAR_MONTHS)
+    last ? Math.max(PLOT_MIN_MONTHS, last + PLOT_TAIL) : NEAR_MONTHS
   );
-  if (span < 1) return null;
+  if (span < 1 || (!beyond.length && !last)) return null;
 
   /* Point 0 is today's cash, so the line starts where you actually are rather
      than at the end of next month. */
@@ -138,20 +151,26 @@ function GoalPlot({ line, goals, settings }: {
     .map((b, i) => `${(i / steps) * 100},${100 - y(b)}`)
     .join(' ');
 
-  /* Where the line actually crosses the band's top, interpolated inside the
-     month that covers it. The mark then sits on the line and on the band edge
-     at once, which is the whole claim the picture is making. */
-  const crossing = (g: GoalForecast): number | null => {
-    const at = g.monthsAway;
-    if (at === null || at > steps) return null;
-    if (at === 0) return 0;
-    const before = balances[at - 1] ?? 0;
-    const after = balances[at] ?? 0;
-    const share = after === before ? 1 : (g.threshold - before) / (after - before);
-    return ((at - 1 + Math.min(1, Math.max(0, share))) / steps) * 100;
+  /* Where the line reaches a given balance, interpolated inside the month that
+     gets there — 0 if it starts there, 100 if it never does. A mark placed at
+     this x for a goal's own threshold sits on the line and on the top of its
+     band at once, which is the whole claim the picture is making. */
+  const crossAt = (value: Cents): number => {
+    if ((balances[0] ?? 0) >= value) return 0;
+    for (let i = 1; i <= steps; i++) {
+      const before = balances[i - 1] ?? 0;
+      const after = balances[i] ?? 0;
+      if (after < value) continue;
+      const share = after === before ? 1 : (value - before) / (after - before);
+      return ((i - 1 + Math.min(1, Math.max(0, share))) / steps) * 100;
+    }
+    return 100;
   };
 
-  const tickEvery = steps <= 12 ? 2 : steps <= 30 ? 6 : 12;
+  const crossing = (g: GoalForecast): number | null =>
+    (g.monthsAway === null || g.monthsAway > steps) ? null : crossAt(g.threshold);
+
+  const tickEvery = steps <= 6 ? 1 : steps <= 12 ? 2 : steps <= 30 ? 6 : 12;
   const ticks = [];
   for (let i = 0; i <= steps; i += tickEvery) {
     const period = i === 0 ? '' : line.months[i - 1]?.period;
@@ -165,7 +184,6 @@ function GoalPlot({ line, goals, settings }: {
 
   const endBalance = balances[steps] ?? line.start;
   const endPeriod = line.months[steps - 1]?.period ?? line.startPeriod;
-  const beyond = priced.filter((b) => b.g.monthsAway === null).map((b) => b.g);
 
   return (
     <div>
@@ -182,10 +200,17 @@ function GoalPlot({ line, goals, settings }: {
           const open = g.threshold > floor + range;
           const height = (open ? 100 : y(g.threshold)) - bottom;
           if (height <= 0) return null;
+          /* The label goes on whichever side of the plot the line does not
+             cross the band's own mid-height on. The line only ever climbs
+             through a band once, so the far side of that crossing is always
+             free — which is what stops a long goal name being struck through
+             by the line on a plot where the band is cleared early. */
+          const mid = (g.reserved + Math.min(g.threshold, floor + range)) / 2;
+          const right = crossAt(mid) < 50;
           return (
             <div
               key={g.goal.id}
-              class={`band${i % 2 ? ' is-alt' : ''}${open ? ' is-open' : ''}`}
+              class={`band${i % 2 ? ' is-alt' : ''}${open ? ' is-open' : ''}${right ? ' is-right' : ''}`}
               style={`bottom:${bottom}%;height:${height}%`}
             >
               {height >= BAND_LABEL_MIN ? (
@@ -290,6 +315,12 @@ export function Goals() {
   const finishes = priced.reduce<Period | ''>(
     (latest, g) => (g.reachedIn > latest ? g.reachedIn : latest), ''
   );
+
+  /* Nothing left to plot once every goal is covered by what you already have —
+     the same test the plot itself makes, kept here so the panel goes with it
+     rather than being left as an empty heading. */
+  const landsLater = priced.some((g) => (g.monthsAway ?? 0) > 0);
+  const showPlot = priced.length > 0 && (landsLater || beyond.length > 0);
 
   if (nothingSetUp) {
     return (
@@ -467,7 +498,7 @@ export function Goals() {
         />
       </div>
 
-      {priced.length ? (
+      {showPlot ? (
         <Sheet>
           <SheetHead>
             <h2>When each goal lands</h2>

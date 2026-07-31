@@ -342,10 +342,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .bar-row { display: grid; grid-template-columns: 1fr auto; gap: var(--s1) var(--s4); align-items: baseline; }
 .bar-name { font-size: var(--t-sm); }
 .bar-value { font-family: var(--font-mono); font-size: 13px; }
-.bar-track { grid-column: 1 / -1; height: 3px; background: var(--rule); }
+/* These two and .meter below are one object drawn in three places: a share of
+   something, ink on rule, square ends. They were 3px, which is a hairline —
+   readable as a rule under a figure, not readable as a quantity. */
+.bar-track { grid-column: 1 / -1; height: 6px; background: var(--rule); }
 .bar-fill { height: 100%; background: var(--ink-strong); }
 
-.progress { height: 3px; background: var(--rule); margin-top: var(--s2); }
+.progress { height: 6px; background: var(--rule); margin-top: var(--s2); }
 .progress > div { height: 100%; background: var(--ink-strong); }
 
 /* ------------------------------------------------------------------- goals */
@@ -366,9 +369,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .headline-sub { margin-top: var(--s2); font-size: var(--t-sm); color: var(--ink-muted); }
 .headline-sub .num { color: var(--ink); }
 
-/* A target bar you can see. The 3px .progress rule reads as a hairline, which is
-   right beside a figure and wrong for the one thing this tab asks you to read.
-   Square ends: a pill would be the only rounded thing on the page. */
+/* The same bar as .progress above, without its margin — it sits in a table cell
+   here, under its own line of type. Square ends: a pill would be the only
+   rounded thing on the page. */
 .meter { height: 6px; background: var(--rule); }
 .meter > div { height: 100%; background: var(--ink-strong); }
 
@@ -386,15 +389,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .band.is-alt { background: rgba(17, 17, 17, .058); }
 /* Its top is off the top of the plot, so it does not get drawn one. */
 .band.is-open { border-top: 0; }
-/* The line enters a band at its bottom left and leaves through the top, so at
-   the height the label sits at it is always further right than the label is —
-   which is why the label can sit at the left edge and still be clear of it.
-   That stops holding on a plot short enough for the line to cross a band in a
-   few percent of its width, which is what the phone rule below is for. */
+/* Which end it sits at is decided per band in the markup: the line crosses a
+   band once, so the side away from that crossing is always clear of it. */
+.band.is-right { justify-content: flex-end; }
 .band-name {
   display: flex; align-items: baseline; gap: var(--s2);
   font-family: var(--font-display); font-size: 12px; font-weight: 600;
-  color: var(--ink); padding-left: var(--s2); white-space: nowrap;
+  color: var(--ink); padding: 0 var(--s2); white-space: nowrap;
 }
 /* --ink-faint would drop under AA against the band's own wash. */
 .band-rank { color: var(--ink-muted); font-weight: 400; }
@@ -404,8 +405,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 /* Only drawn when the projection goes under. Where the line crosses it you have
    run out, which is worth a rule of its own and the one colour on the plot. */
 .plot-zero { position: absolute; left: 0; right: 0; border-top: 1px solid var(--mark-danger); }
+/* Sits above its rule, not under it: under puts it in the axis lane and on top
+   of the first month's label whenever the line only dips a little below zero. */
 .plot-zero > span {
-  position: absolute; left: 0; top: 2px;
+  position: absolute; left: 0; bottom: 2px;
   font-family: var(--font-mono); font-size: 11px; color: var(--ink-danger);
 }
 
@@ -427,6 +430,9 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 .plot-tick.is-first { transform: none; }
 .plot-tick.is-last { transform: translateX(-100%); }
+/* The two ends of a line, said in words and anchored under the ends themselves.
+   Shared with the gold sparkline — this is the caption row for any line chart,
+   as against .legend, which is a key for a chart with more than one mark. */
 .plot-note {
   display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap;
   margin-top: var(--s3); font-size: var(--t-sm); color: var(--ink-muted);
@@ -499,7 +505,15 @@ td.is-negative { color: var(--ink-danger); }
   font-family: var(--font-mono); font-variant-numeric: tabular-nums;
   font-size: var(--t-md); letter-spacing: -.02em; margin-top: var(--s1);
 }
+.spark-wrap { position: relative; }
 .spark { display: block; width: 100%; height: 60px; color: var(--ink-strong); }
+/* Today's reading. Placed in HTML, not in the SVG: the box is stretched to the
+   panel's width, and a circle drawn inside it comes out an ellipse. */
+.spark-end {
+  position: absolute; right: 0; width: 8px; height: 8px; margin: 0 -4px -4px 0;
+  border-radius: 50%; background: var(--ink-strong);
+  box-shadow: 0 0 0 2px var(--surface);
+}
 
 /* ------------------------------------------------------------------ dialog */
 
@@ -555,6 +569,11 @@ textarea.sql { font-family: var(--font-mono); font-size: 13px; min-height: 76px;
   .plot { height: 160px; }
   /* The numbered marks and the table below carry the names at this size. */
   .band-name { display: none; }
+  /* Every other month, because how many ticks fit is a question about width and
+     the count was chosen from the number of months. Dropping every second one
+     halves the density whatever that count turned out to be, and always keeps
+     "now". */
+  .plot-tick:nth-child(even) { display: none; }
 }
 
 /* Below this the figures row is two columns wide, so an odd number of them
@@ -571,5 +590,7 @@ textarea.sql { font-family: var(--font-mono); font-size: 13px; min-height: 76px;
   /* Backgrounds are dropped by default when printing, which would take the
      mark's ink disc with it and leave its number as white on white — and the
      number is the only thing saying which goal the mark belongs to. */
-  .plot-mark, .band, .meter > div { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .plot-mark, .band, .meter > div, .spark-end, .progress > div, .bar-fill {
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
 }

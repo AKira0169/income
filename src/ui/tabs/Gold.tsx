@@ -27,6 +27,8 @@ const COLUMNS = 8;
 /** Readings shown in the table, and the window the sparkline is drawn over. */
 const HISTORY_ROWS = 14;
 const SPARK_READINGS = 60;
+/** The narrowest the sparkline's scale closes: 2% of the price, either way. */
+const FLAT_BAND = 0.02;
 
 const HEADERS = [
   { label: 'Date' }, { label: 'Bought / sold' }, { label: 'Karat', num: true },
@@ -53,29 +55,45 @@ function Sparkline({ state }: { state: AppState }) {
   const values = history.map((p) => p.egpPerGram24 || 0);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const span = (max - min) || 1;
+  const middle = (min + max) / 2;
+
+  /* Scaled to its own min and max, a sparkline draws every series as the same
+     dramatic shape: two readings a tenth of a percent apart become a cliff,
+     which is what the price did not do. The band never closes tighter than
+     FLAT_BAND of the price, so a quiet week is drawn as a quiet line and only a
+     real move fills the height. The series is centred in it. */
+  const span = Math.max(max - min, Math.abs(middle) * FLAT_BAND) || 1;
+  const low = middle - span / 2;
+  /* 1..29 of the 30-unit box, so the stroke is never clipped by the edge. */
+  const plot = (v: number): number => 30 - ((v - low) / span) * 28 - 1;
+
   const points = values.map((v, i) => {
     const x = (i / (values.length - 1)) * 100;
-    const y = 30 - ((v - min) / span) * 28 - 1;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+    return `${x.toFixed(2)},${plot(v).toFixed(2)}`;
   }).join(' ');
 
   const money = (cents: number): string => formatMoney(cents, state.settings);
+  const latest = values[values.length - 1]!;
 
   return (
     <div>
-      <svg
-        viewBox="0 0 100 30" preserveAspectRatio="none" class="spark" role="img"
-        aria-label={`Gold price per gram, last ${history.length} readings`}
-      >
-        <polyline
-          points={points} fill="none" stroke="currentColor"
-          stroke-width="1" vector-effect="non-scaling-stroke"
-        />
-      </svg>
-      <div class="legend">
-        <span>{`${history[0]!.date} · ${money(min)}`}</span>
-        <span>{`now · ${money(values[values.length - 1]!)}`}</span>
+      <div class="spark-wrap">
+        <svg
+          viewBox="0 0 100 30" preserveAspectRatio="none" class="spark" role="img"
+          aria-label={`Gold price per gram, last ${plural(history.length, 'reading')}`}
+        >
+          <polyline
+            points={points} fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+            vector-effect="non-scaling-stroke"
+          />
+        </svg>
+        {/* Today's reading, marked on the line the right-hand label names. */}
+        <div class="spark-end" style={`bottom:${((30 - plot(latest)) / 30) * 100}%`} />
+      </div>
+      <div class="plot-note">
+        <span>{`${history[0]!.date} · `}<span class="num">{money(values[0]!)}</span></span>
+        <span>{'now · '}<span class="num">{money(latest)}</span></span>
       </div>
     </div>
   );
