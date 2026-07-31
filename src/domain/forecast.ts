@@ -12,9 +12,10 @@
    data in the database the user never asked for. */
 
 import { currentPeriod, occursIn, periodOf, shiftPeriod } from './period.ts';
+import { withCollection } from './records.ts';
 import { billCashDate, cashOnHand, purchasesIn, sum } from './selectors.ts';
 import type {
-  AppState, Cents, Forecast, ForecastMonth, ForecastOptions, Period
+  AppState, Cents, Forecast, ForecastMonth, ForecastOptions, Goal, GoalForecast, Id, Period
 } from './types.ts';
 
 /** Five years. Far enough that "not within the horizon" really means never. */
@@ -134,4 +135,92 @@ export function forecast(state: AppState, opts: ForecastOptions = {}): Forecast 
   }
 
   return { startPeriod, start, outstanding, spending, months };
+}
+
+/* --------------------------------------------------------- goals in order */
+
+/* Goals still being saved for, in funding order. The test is falsy rather than
+   === '': readAll() returns SQL NULL as null, so a column added to `goals` by a
+   later build reads back as null on an existing database. The `id` tiebreak is
+   what keeps the order stable when two priorities are equal — which they can
+   be, for the same reason. */
+export function goalQueue(state: AppState): Goal[] {
+  return state.goals
+    .filter((g) => !g.boughtDate)
+    .slice()
+    .sort((a, b) => ((a.priority || 0) - (b.priority || 0))
+      || String(a.id).localeCompare(String(b.id)));
+}
+
+/* Goal n needs the prices of every goal ahead of it plus its own. That is
+   exactly "buy the first, then keep saving for the second", expressed as one
+   running line rather than a simulation. */
+export function goalForecasts(state: AppState, f?: Forecast): GoalForecast[] {
+  const line = f ?? forecast(state);
+  const out: GoalForecast[] = [];
+  let reserved = 0;
+
+  for (const goal of goalQueue(state)) {
+    const price = goal.price || 0;
+    const threshold = reserved + price;
+    const saved = Math.min(Math.max(line.start - reserved, 0), price);
+
+    let reachedIn: Period | '' = '';
+    let monthsAway: number | null = null;
+    /* A goal with no price contributes 0 to `reserved` so it never blocks one
+       behind it, and gets no date: the screen shows the projection and invites
+       a price instead of inventing an answer. */
+    if (price > 0) {
+      if (line.start >= threshold) {
+        reachedIn = line.startPeriod;
+        monthsAway = 0;
+      } else {
+        const idx = line.months.findIndex((m: ForecastMonth) => m.balance >= threshold);
+        if (idx !== -1) {
+          reachedIn = line.months[idx]!.period;
+          monthsAway = idx + 1;
+        }
+      }
+    }
+
+    out.push({
+      goal,
+      reserved,
+      threshold,
+      saved,
+      progress: price > 0 ? saved / price : 0,
+      reachedIn,
+      monthsAway
+    });
+    reserved += price;
+  }
+  return out;
+}
+
+/* Moves a goal one place up (-1) or down (+1) the funding queue, and is a no-op
+   at either end.
+
+   One pure function returning one new state, rather than two upsert calls: two
+   calls mean two commits, two saves, and an intermediate state where both goals
+   hold the same priority — the queue order would flicker on the `id` tiebreak
+   in between. The whole queue is renumbered rather than two numbers swapped,
+   because priorities read back off an older database can be duplicated or null,
+   and swapping two equal numbers would change nothing. */
+export function moveGoal(state: AppState, id: Id, delta: number): AppState {
+  const queue = goalQueue(state);
+  const from = queue.findIndex((g) => g.id === id);
+  if (from === -1) return state;
+  const to = from + delta;
+  if (to < 0 || to >= queue.length) return state;
+
+  const order = queue.slice();
+  const moving = order[from]!;
+  order[from] = order[to]!;
+  order[to] = moving;
+
+  const priorities = new Map(order.map((g, i) => [g.id, i + 1]));
+  return withCollection(state, 'goals', state.goals.map((g) => {
+    const priority = priorities.get(g.id);
+    return priority === undefined ? g : { ...g, priority };
+  }));
 }

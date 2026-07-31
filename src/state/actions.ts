@@ -7,6 +7,7 @@
    commit would leave the screen showing the old figures. */
 
 import * as Backup from '../domain/backup.ts';
+import * as Forecast from '../domain/forecast.ts';
 import * as Gold from '../domain/gold.ts';
 import * as Records from '../domain/records.ts';
 import * as Recurring from '../domain/recurring.ts';
@@ -79,4 +80,11 @@ export function recordGoldPrice(reading: Gold.GoldPriceReading): GoldPrice {
   const result = Gold.recordGoldPrice(app.peek(), reading);
   commit(result.state);
   return result.record;
+}
+
+/* Adding and deleting a goal need nothing here — upsert and remove are already
+   generic over CollectionKey. Reordering is the one write with a rule. */
+export function moveGoal(id: Id, delta: number): void {
+  const next = Forecast.moveGoal(app.peek(), id, delta);
+  if (next !== app.peek()) commit(next);
 }

@@ -274,6 +274,22 @@ export interface Forecast {
   months: ForecastMonth[];
 }
 
+export interface GoalForecast {
+  goal: Goal;
+  /** Total price of the goals ahead of this one. */
+  reserved: Cents;
+  /** reserved + goal.price — the balance this goal needs. */
+  threshold: Cents;
+  /** Already yours toward this goal: start − reserved, floored at 0, capped at price. */
+  saved: Cents;
+  /** 0..1 against this goal's own price. Always 0 when price is 0. */
+  progress: number;
+  /** First month whose balance reaches `threshold`; '' if never inside the horizon. */
+  reachedIn: Period | '';
+  /** Months from startPeriod, 0 meaning affordable now; null when reachedIn is ''. */
+  monthsAway: number | null;
+}
+
 /** Which way a movement pushes money relative to your savings. */
 export interface SavingsMovement {
   in: Cents;

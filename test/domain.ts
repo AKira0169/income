@@ -14,7 +14,9 @@ import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
 import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
-import { assumedSpending, forecast, HORIZON_MONTHS } from '../src/domain/forecast.ts';
+import {
+  assumedSpending, forecast, goalForecasts, goalQueue, HORIZON_MONTHS, moveGoal
+} from '../src/domain/forecast.ts';
 import type { AppState } from '../src/domain/types.ts';
 
 let failures = 0;
@@ -384,6 +386,73 @@ check('and purchases only in the current month still average to 0',
   }).state, FROM), 0);
 check('the younger figure is unchanged by a purchase in the current month',
   assumedSpending(young, FROM), 300000);
+
+/* ---------------- goals, funded in order ---------------- */
+
+/* Reuses the worked example: the line starts at 10,600 and gains 9,000 a month
+   apart from the January insurance month. 45,000 lands in November; a second
+   goal of 20,000 needs 65,000, which the January premium pushes out to March. */
+console.log('\ngoals, funded in order:');
+let planned = world;
+for (const [id, name, price, priority] of [
+  ['gol_a', 'RTX 5080', 4500000, 1],
+  ['gol_b', 'New phone', 2000000, 2]
+] as const) {
+  planned = upsert(planned, 'goals', { id, name, price, priority, boughtDate: '', notes: '' }).state;
+}
+
+const plannedLine = forecast(planned, { from: FROM, spending: 330000 });
+const [first, second] = goalForecasts(planned, plannedLine);
+
+check('the first goal needs only its own price', [first?.reserved, first?.threshold], [0, 4500000]);
+check('and lands in November', [first?.reachedIn, first?.monthsAway], ['2026-11', 4]);
+check('the second reserves the first price on top of its own',
+  [second?.reserved, second?.threshold], [4500000, 6500000]);
+check('so the January premium pushes it to March', second?.reachedIn, '2027-03');
+check('progress is measured against the goal\'s own price',
+  [first?.saved, Math.round((first?.progress ?? 0) * 100)], [1060000, 24]);
+check('and a goal with nothing yet saved reads 0', [second?.saved, second?.progress], [0, 0]);
+
+const priced = upsert(planned, 'goals', {
+  id: 'gol_none', name: 'Something', price: 0, priority: 0, boughtDate: '', notes: ''
+}).state;
+const withoutPrice = goalForecasts(priced, forecast(priced, { from: FROM, spending: 330000 }));
+check('a goal with no price gets no date', [withoutPrice[0]?.reachedIn, withoutPrice[0]?.monthsAway], ['', null]);
+check('and never blocks a goal behind it', withoutPrice[1]?.threshold, 4500000);
+
+const broke = goalForecasts(planned, forecast(planned, { from: FROM, spending: 3300000 }));
+check('a negative surplus yields no date, not a date far away',
+  [broke[0]?.reachedIn, broke[0]?.monthsAway], ['', null]);
+
+const cheap = upsert(planned, 'goals', {
+  id: 'gol_now', name: 'A cable', price: 100000, priority: -1, boughtDate: '', notes: ''
+}).state;
+const affordable = goalForecasts(cheap, forecast(cheap, { from: FROM, spending: 330000 }));
+check('a goal you can already afford is 0 months away',
+  [affordable[0]?.reachedIn, affordable[0]?.monthsAway], [FROM, 0]);
+
+const bought = upsert(planned, 'goals', { id: 'gol_a', boughtDate: '2026-11-04' }).state;
+check('a bought goal drops out of the funding queue',
+  goalQueue(bought).map((g) => g.id), ['gol_b']);
+// readAll() returns SQL NULL as null, so the test has to be falsy, not === ''.
+const nulled = { ...planned, goals: planned.goals.map((g) => ({ ...g, boughtDate: null as unknown as '' })) };
+check('and a null bought date read back off SQLite still counts as unbought',
+  goalQueue(nulled).length, 2);
+
+/* ---------------- reordering the queue ---------------- */
+
+console.log('\nreordering the funding queue:');
+const moved = moveGoal(planned, 'gol_b', -1);
+check('moving up swaps the pair in one new state', goalQueue(moved).map((g) => g.id), ['gol_b', 'gol_a']);
+check('the state object is replaced', moved === planned, false);
+check('and the original is untouched', goalQueue(planned).map((g) => g.id), ['gol_a', 'gol_b']);
+check('moving down returns it', goalQueue(moveGoal(moved, 'gol_b', 1)).map((g) => g.id), ['gol_a', 'gol_b']);
+// Identity, not deep equality: a no-op must hand back the very same object, or
+// the signal redraws and the database is rewritten for nothing.
+check('moving up from the top is a no-op', moveGoal(planned, 'gol_a', -1) === planned, true);
+check('moving down from the bottom is a no-op', moveGoal(planned, 'gol_b', 1) === planned, true);
+check('moving a goal that is not in the queue is a no-op',
+  moveGoal(planned, 'nope', 1) === planned, true);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);
