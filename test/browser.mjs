@@ -381,6 +381,14 @@ try {
   check('move down is disabled on the last goal', await tab.evaluate(() =>
     document.querySelector('button[aria-label="Move Second down"]').disabled), true);
 
+  await tab.evaluate(() => globalThis.__app.goTab('dashboard'));
+  await settle();
+  check('the Dashboard shows a Goals panel once there are goals',
+    await tab.evaluate(() => [...document.querySelectorAll('main .sheet h2')]
+      .some((h) => h.textContent === 'Goals')), true);
+  await tab.evaluate(() => globalThis.__app.goTab('goals'));
+  await settle();
+
   /* The same trap the rest of the suite is arranged around: a field rendering
      `value={initial}` instead of `defaultValue` eats what was typed the moment
      anything else redraws the page. */
