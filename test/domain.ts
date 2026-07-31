@@ -222,6 +222,25 @@ dated = upsert(dated, 'bills', {
 }).state;
 dated = { ...dated, bills: dated.bills.map((b) => (b.id === 'b_nodate' ? { ...b, status: 'paid' } : b)) };
 
+// Second account with its own opening balance, to test multi-account summation.
+dated = upsert(dated, 'accounts', {
+  id: 'a_s', name: 'Savings', type: 'Savings', opening: 50000, target: 0, notes: ''
+}).state;
+
+// Transfer between accounts dated after the July cut-off: neither the total nor
+// each account's balance at 2026-07 should change.
+dated = upsert(dated, 'savingsTx', {
+  id: 'tx_xfer', date: '2026-08-15', direction: 'transfer', amount: 10000,
+  accountId: 'a_s', fromAccountId: 'a_d', notes: ''
+}).state;
+
+// Gold buy, also after the July cut-off. A buy is cash out, stored net, so a
+// positive flows.gold means gold has cost the account.
+dated = upsert(dated, 'gold', {
+  id: 'g_buy', date: '2026-08-10', karat: 24, grams: 5, direction: 'buy',
+  amount: 5000, accountId: 'a_d', pricePerGram: 1000, dealer: '', notes: ''
+}).state;
+
 check('the cash date of a bill paid late is the date it was paid',
   billCashDate({ dueDate: '2026-06-10', paidDate: '2026-08-02' }), '2026-08-02');
 check('and a paid bill with no paid date falls under its due date',
@@ -231,17 +250,27 @@ check('and a paid bill with no paid date falls under its due date',
 // income, the bill paid in August and the bill dated September are all after.
 check('the balance as of July is hand-computable',
   accountBalance(dated, 'a_d', '2026-07'), 149000);
+// Transfer and gold are both in August, so they're excluded at July cut-off.
+// At September, they're included: 149k + 70k income - 3k bill - 10k transfer - 5k gold - 2k bill.
 check('the September income is excluded until September',
-  accountBalance(dated, 'a_d', '2026-09'), 149000 + 70000 - 3000 - 2000);
+  accountBalance(dated, 'a_d', '2026-09'), 149000 + 70000 - 3000 - 10000 - 5000 - 2000);
+// August includes the bill payment and the transfer and gold, all of which take
+// money out (transfer is -10k, gold is -5k).
 check('a bill paid late counts in the month it was paid, not the month it was due',
-  accountBalance(dated, 'a_d', '2026-08'), 149000 - 3000);
+  accountBalance(dated, 'a_d', '2026-08'), 149000 - 3000 - 10000 - 5000);
 
 check('cash on hand adds every account together',
-  cashOnHand(dated, '2026-07'), 149000);
+  cashOnHand(dated, '2026-07'), 149000 + 50000);
+check('and a transfer moves money between accounts once the cut-off is past',
+  accountBalance(dated, 'a_d', '2026-08'), 131000);
+check('leaving the other account with the transfer in',
+  accountBalance(dated, 'a_s', '2026-08'), 50000 + 10000);
+check('but the total is unchanged by the transfer (it is internal)',
+  cashOnHand(dated, '2026-08'), 131000 + 60000);
 check('and far enough out it is exactly the undated total',
   cashOnHand(dated, '9999-12'), totalSavings(dated));
 check('omitting the cut-off leaves the old behaviour alone',
-  accountBalance(dated, 'a_d'), totalSavings(dated));
+  accountBalance(dated, 'a_d'), accountBalance(dated, 'a_d', '9999-12'));
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);
