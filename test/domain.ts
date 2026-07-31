@@ -453,6 +453,7 @@ check('moving up from the top is a no-op', moveGoal(planned, 'gol_a', -1) === pl
 check('moving down from the bottom is a no-op', moveGoal(planned, 'gol_b', 1) === planned, true);
 check('moving a goal that is not in the queue is a no-op',
   moveGoal(planned, 'nope', 1) === planned, true);
+check('a delta of zero is a no-op too', moveGoal(planned, 'gol_a', 0) === planned, true);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

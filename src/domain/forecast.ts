@@ -211,7 +211,10 @@ export function moveGoal(state: AppState, id: Id, delta: number): AppState {
   const from = queue.findIndex((g) => g.id === id);
   if (from === -1) return state;
   const to = from + delta;
-  if (to < 0 || to >= queue.length) return state;
+  // to === from (delta 0) is a value no-op too: identity has to hold here as
+  // much as at the ends, or the signal redraws and the database is rewritten
+  // for nothing.
+  if (to === from || to < 0 || to >= queue.length) return state;
 
   const order = queue.slice();
   const moving = order[from]!;
