@@ -64,33 +64,58 @@ export function defaultSavingsAccount(state: AppState): Id | '' {
   return pot?.id ?? '';
 }
 
+/* When a bill actually moves money. `paidDate || dueDate` rather than
+   `paidDate` alone because a paid bill can carry an empty paid date, and
+   periodOf('') is '', which sorts before every real period — such a bill would
+   otherwise count as paid in the distant past. One helper rather than the
+   expression twice, so the balance and the projection cannot drift apart. */
+export const billCashDate = (
+  bill: { paidDate?: IsoDate | ''; dueDate?: IsoDate | '' }
+): IsoDate => bill.paidDate || bill.dueDate || '';
+
 /* Every flow that touches an account, in the order money actually moves. A bill
    only leaves the account when it is paid — an unpaid bill is a commitment, not
-   a withdrawal, and deducting it would make the balance disagree with the bank. */
-export function accountFlows(state: AppState, accountId: Id): AccountFlows {
+   a withdrawal, and deducting it would make the balance disagree with the bank.
+
+   With `throughPeriod` given, a flow counts only if its cash date falls on or
+   before the end of that period. Omitted, every record counts whatever its
+   date, which is what every existing caller means. */
+export function accountFlows(state: AppState, accountId: Id, throughPeriod?: Period): AccountFlows {
   const flows: AccountFlows = {
     opening: 0, income: 0, purchases: 0, bills: 0, savedIn: 0, savedOut: 0, gold: 0
   };
   const account = byId(state, 'accounts', accountId);
   if (!account) return flows;
+
+  /* The opening balance has no date and counts in full at every cut-off. That
+     is the correct reading rather than a limitation: an opening balance is by
+     definition the money that was there before the records begin, and Account
+     carries no date it could be filed under. "As of a month" invites the
+     opposite assumption, which is why this says so. */
   flows.opening = account.opening || 0;
 
+  const settled = (date: IsoDate | '' | null | undefined): boolean =>
+    !throughPeriod || periodOf(date) <= throughPeriod;
+
   for (const r of state.income) {
-    if (r.accountId === accountId) flows.income += r.amount || 0;
+    if (r.accountId === accountId && settled(r.date)) flows.income += r.amount || 0;
   }
   for (const r of state.purchases) {
-    if (r.accountId === accountId) flows.purchases += r.amount || 0;
+    if (r.accountId === accountId && settled(r.date)) flows.purchases += r.amount || 0;
   }
   for (const b of state.bills) {
-    if (b.accountId === accountId && b.status === 'paid') flows.bills += b.amount || 0;
+    if (b.accountId === accountId && b.status === 'paid' && settled(billCashDate(b))) {
+      flows.bills += b.amount || 0;
+    }
   }
   // Buying gold takes money out of an account and turns it into metal; selling
   // puts it back. Net, so a positive figure means gold has cost this account.
   for (const r of state.gold) {
-    if (r.accountId !== accountId) continue;
+    if (r.accountId !== accountId || !settled(r.date)) continue;
     flows.gold += r.direction === 'sell' ? -(r.amount || 0) : (r.amount || 0);
   }
   for (const tx of state.savingsTx) {
+    if (!settled(tx.date)) continue;
     const amount = tx.amount || 0;
     if (tx.direction === 'transfer') {
       if (tx.accountId === accountId) flows.savedIn += amount;
@@ -104,13 +129,21 @@ export function accountFlows(state: AppState, accountId: Id): AccountFlows {
   return flows;
 }
 
-export function accountBalance(state: AppState, accountId: Id): Cents {
-  const f = accountFlows(state, accountId);
+export function accountBalance(state: AppState, accountId: Id, throughPeriod?: Period): Cents {
+  const f = accountFlows(state, accountId, throughPeriod);
   return f.opening + f.income + f.savedIn - f.purchases - f.bills - f.savedOut - f.gold;
 }
 
 export function totalSavings(state: AppState): Cents {
   return sum(state.accounts, (a) => accountBalance(state, a.id));
+}
+
+/* Every account added together, as of the end of `throughPeriod`. Summed per
+   account rather than over the raw tables so that transfers cancel out and a
+   record pointing at a deleted account is excluded — the same way totalSavings
+   already excludes it. */
+export function cashOnHand(state: AppState, throughPeriod: Period): Cents {
+  return sum(state.accounts, (a) => accountBalance(state, a.id, throughPeriod));
 }
 
 /* Only the pots. The current account holding this month's salary is a balance,

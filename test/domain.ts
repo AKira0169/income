@@ -13,6 +13,7 @@ import { blankState, migrate, updateSettings, upsert } from '../src/domain/recor
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
+import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
 import type { AppState } from '../src/domain/types.ts';
 
 let failures = 0;
@@ -183,6 +184,64 @@ check('goals survive a JSON backup and restore', restored.goals, goalState.goals
 check('price and priority come back as numbers',
   [typeof restored.goals[0]?.price, typeof restored.goals[0]?.priority],
   ['number', 'number']);
+
+/* ---------------- balances as of a month ---------------- */
+
+/* The fixture puts records deliberately on both sides of a 2026-07 cut-off.
+   The far-future invariant below passes even when the date filter is wrong in
+   every other case, so the hand-computed figure is the test that discriminates
+   and the invariant is what pins the two readings together. */
+console.log('\nbalances as of a month:');
+let dated: AppState = upsert(blankState(), 'accounts', {
+  id: 'a_d', name: 'Card', type: 'Current Account', opening: 100000, target: 0, notes: ''
+}).state;
+dated = upsert(dated, 'income', {
+  id: 'i_now', date: '2026-07-05', source: 'Salary', category: 'Salary',
+  amount: 50000, accountId: 'a_d', method: '', notes: ''
+}).state;
+dated = upsert(dated, 'income', {
+  id: 'i_later', date: '2026-09-05', source: 'Salary', category: 'Salary',
+  amount: 70000, accountId: 'a_d', method: '', notes: ''
+}).state;
+dated = upsert(dated, 'purchases', {
+  id: 'p_now', date: '2026-07-09', item: 'Tea', category: 'Groceries',
+  amount: 1000, accountId: 'a_d', method: '', notes: ''
+}).state;
+// Due in June, paid in August: cash left the account in August, not June.
+dated = upsert(dated, 'bills', {
+  id: 'b_late', name: 'Water', category: 'Water', provider: '', dueDate: '2026-06-10',
+  amount: 3000, accountId: 'a_d', units: null, unitRate: null, paidDate: '2026-08-02',
+  method: '', notes: ''
+}).state;
+// Paid, but with no paid date recorded. periodOf('') is '', which sorts before
+// every real period — this must fall under its due date instead.
+dated = upsert(dated, 'bills', {
+  id: 'b_nodate', name: 'Internet', category: 'Internet', provider: '', dueDate: '2026-09-10',
+  amount: 2000, accountId: 'a_d', units: null, unitRate: null, paidDate: '',
+  method: '', notes: ''
+}).state;
+dated = { ...dated, bills: dated.bills.map((b) => (b.id === 'b_nodate' ? { ...b, status: 'paid' } : b)) };
+
+check('the cash date of a bill paid late is the date it was paid',
+  billCashDate({ dueDate: '2026-06-10', paidDate: '2026-08-02' }), '2026-08-02');
+check('and a paid bill with no paid date falls under its due date',
+  billCashDate({ dueDate: '2026-09-10', paidDate: '' }), '2026-09-10');
+
+// 100,000 opening + 50,000 July income − 1,000 July purchase. The September
+// income, the bill paid in August and the bill dated September are all after.
+check('the balance as of July is hand-computable',
+  accountBalance(dated, 'a_d', '2026-07'), 149000);
+check('the September income is excluded until September',
+  accountBalance(dated, 'a_d', '2026-09'), 149000 + 70000 - 3000 - 2000);
+check('a bill paid late counts in the month it was paid, not the month it was due',
+  accountBalance(dated, 'a_d', '2026-08'), 149000 - 3000);
+
+check('cash on hand adds every account together',
+  cashOnHand(dated, '2026-07'), 149000);
+check('and far enough out it is exactly the undated total',
+  cashOnHand(dated, '9999-12'), totalSavings(dated));
+check('omitting the cut-off leaves the old behaviour alone',
+  accountBalance(dated, 'a_d'), totalSavings(dated));
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);
