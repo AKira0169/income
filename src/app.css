@@ -348,6 +348,127 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .progress { height: 3px; background: var(--rule); margin-top: var(--s2); }
 .progress > div { height: 100%; background: var(--ink-strong); }
 
+/* ------------------------------------------------------------------- goals */
+
+/* The answer sits on the paper rather than on a sheet. Every other tab opens on
+   a panel of records; this one opens on one sentence — what you are getting and
+   when — set the way a page opens with a headline. It is the only place the
+   display face is used at the top of the scale. */
+.headline { padding: 0 var(--s1); }
+.headline-row { display: flex; align-items: baseline; gap: var(--s3) var(--s4); flex-wrap: wrap; }
+.headline-name { font-size: var(--t-2xl); line-height: 1.1; }
+.headline-when {
+  margin-left: auto; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--t-lg); letter-spacing: -.02em;
+}
+.headline-when.is-far { color: var(--ink-muted); font-size: var(--t-md); }
+.headline .meter { margin-top: var(--s4); }
+.headline-sub { margin-top: var(--s2); font-size: var(--t-sm); color: var(--ink-muted); }
+.headline-sub .num { color: var(--ink); }
+
+/* A target bar you can see. The 3px .progress rule reads as a hairline, which is
+   right beside a figure and wrong for the one thing this tab asks you to read.
+   Square ends: a pill would be the only rounded thing on the page. */
+.meter { height: 6px; background: var(--rule); }
+.meter > div { height: 100%; background: var(--ink-strong); }
+
+/* Each goal is a band as tall as its price, stacked in the order they are
+   funded, and the line is your cash climbing through them. Height is money and
+   width is time, so "why is that one so far off" is answered by the size of the
+   band rather than by a date you have to take on trust. */
+.plot { position: relative; height: 220px; }
+.band {
+  position: absolute; left: 0; right: 0;
+  border-top: 1px solid var(--rule-strong);
+  background: rgba(17, 17, 17, .028);
+  display: flex; align-items: center; overflow: hidden;
+}
+.band.is-alt { background: rgba(17, 17, 17, .058); }
+/* Its top is off the top of the plot, so it does not get drawn one. */
+.band.is-open { border-top: 0; }
+/* The line enters a band at its bottom left and leaves through the top, so at
+   the height the label sits at it is always further right than the label is —
+   which is why the label can sit at the left edge and still be clear of it.
+   That stops holding on a plot short enough for the line to cross a band in a
+   few percent of its width, which is what the phone rule below is for. */
+.band-name {
+  display: flex; align-items: baseline; gap: var(--s2);
+  font-family: var(--font-display); font-size: 12px; font-weight: 600;
+  color: var(--ink); padding-left: var(--s2); white-space: nowrap;
+}
+/* --ink-faint would drop under AA against the band's own wash. */
+.band-rank { color: var(--ink-muted); font-weight: 400; }
+.band-price { color: var(--ink-muted); font-weight: 400; }
+.plot-line { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--ink-strong); }
+
+/* Only drawn when the projection goes under. Where the line crosses it you have
+   run out, which is worth a rule of its own and the one colour on the plot. */
+.plot-zero { position: absolute; left: 0; right: 0; border-top: 1px solid var(--mark-danger); }
+.plot-zero > span {
+  position: absolute; left: 0; top: 2px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-danger);
+}
+
+/* The mark carries the goal's number in the queue, which is the number beside
+   it in the table below: two goals landing a month apart are a pair of dots
+   that cannot be told apart, and a name at that size collides with its
+   neighbour. Anchored at its own centre, so left/bottom are the crossing. */
+.plot-mark {
+  position: absolute; width: 18px; height: 18px; margin: 0 0 -9px -9px;
+  display: grid; place-items: center;
+  border-radius: 50%; background: var(--ink-strong); color: #FFF;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.plot-axis { position: relative; height: 20px; margin-top: var(--s2); border-top: 1px solid var(--rule); }
+.plot-tick {
+  position: absolute; top: var(--s1); transform: translateX(-50%); white-space: nowrap;
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted);
+}
+.plot-tick.is-first { transform: none; }
+.plot-tick.is-last { transform: translateX(-100%); }
+.plot-note {
+  display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap;
+  margin-top: var(--s3); font-size: var(--t-sm); color: var(--ink-muted);
+}
+.plot-note .num { color: var(--ink); }
+
+/* The assumptions read as a ledger: label, figure, rule, and a ruled total. */
+.assume-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4);
+  padding: var(--s2) 0; border-bottom: 1px solid var(--rule); font-size: var(--t-sm);
+}
+.assume-row .num { font-size: var(--t-base); }
+.assume-row.is-total {
+  border-bottom: 0; border-top: 1px solid var(--rule-strong);
+  padding-top: var(--s3); font-size: var(--t-base);
+}
+.assume-row.is-total .num { font-size: var(--t-md); }
+.assume-control {
+  display: flex; align-items: center; gap: var(--s3) var(--s4); flex-wrap: wrap;
+  padding: var(--s3) 0; border-bottom: 1px solid var(--rule);
+}
+.assume-control input[type="text"] { max-width: 200px; }
+
+/* A checkbox is not a text box. The blanket width:100% on inputs stretched every
+   one in the app across its column and left its label stranded underneath; the
+   second rule is the rest of that — a .field is a column flex, which stretches
+   an auto width right back out again and leaves the box adrift in the middle. */
+input[type="checkbox"] { width: auto; accent-color: var(--ink-strong); }
+.field > input[type="checkbox"] { align-self: start; }
+.check { display: flex; align-items: center; gap: var(--s2); font-size: var(--t-sm); }
+
+/* A month where something is finally yours is worth reading, so it is not muted
+   the way the rest of the sub-lines are. */
+.cell-sub.is-landing { color: var(--ink); }
+
+/* Narrow screens scroll the ledger sideways, the way every other tab does.
+   Without a floor these three cells crush to one word a line instead, which is
+   the one thing worse than scrolling. */
+.cell-goal { min-width: 140px; }
+.cell-when { min-width: 120px; white-space: nowrap; }
+.cell-saved { min-width: 160px; }
+
 /* ---------------------------------------------------------------- accounts */
 
 .accounts { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
@@ -426,10 +547,29 @@ textarea.sql { font-family: var(--font-mono); font-size: 13px; min-height: 76px;
   .topbar-inner, .tabs { padding-left: var(--s4); padding-right: var(--s4); }
   .tabs { gap: var(--s4); }
   .figure-value { font-size: var(--t-md); }
+
+  /* The headline stops being a headline if it wraps to four lines, and the plot
+     keeps its shape better short than squeezed. */
+  .headline-name { font-size: var(--t-xl); }
+  .headline-when { margin-left: 0; font-size: var(--t-md); }
+  .plot { height: 160px; }
+  /* The numbered marks and the table below carry the names at this size. */
+  .band-name { display: none; }
+}
+
+/* Below this the figures row is two columns wide, so an odd number of them
+   leaves a hole showing the grid's own rule colour — a beige block that reads
+   as a broken tile. The last one takes the empty half instead. */
+@media (max-width: 500px) {
+  .figure:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
 @media print {
   .topbar, .tabs, .actions, button, .toast { display: none !important; }
   body { background: #FFF; }
   .sheet { box-shadow: none; break-inside: avoid; }
+  /* Backgrounds are dropped by default when printing, which would take the
+     mark's ink disc with it and leave its number as white on white — and the
+     number is the only thing saying which goal the mark belongs to. */
+  .plot-mark, .band, .meter > div { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

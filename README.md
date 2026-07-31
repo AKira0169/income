@@ -115,6 +115,13 @@ Three things make the answer honest:
   down the list to change what you buy first. A goal with no price yet never
   blocks the ones behind it.
 
+The plot draws those same numbers rather than restating them. Each goal is a
+band as tall as its price, stacked in funding order, so the bands add up to the
+whole queue and the height of one is the reason it is far off; the line is the
+projected balance climbing through them. A goal is yours where the line clears
+the top of its band, which is where its mark sits — numbered with its place in
+the list underneath.
+
 Nothing here writes anything: the forecast reads your recurring set-up and
 returns numbers. Marking a goal as bought files it under **Bought** with the
 date, and the queue closes up behind it.
