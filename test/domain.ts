@@ -14,6 +14,7 @@ import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
 import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
+import { assumedSpending, forecast, HORIZON_MONTHS } from '../src/domain/forecast.ts';
 import type { AppState } from '../src/domain/types.ts';
 
 let failures = 0;
@@ -271,6 +272,118 @@ check('and far enough out it is exactly the undated total',
   cashOnHand(dated, '9999-12'), totalSavings(dated));
 check('omitting the cut-off leaves the old behaviour alone',
   accountBalance(dated, 'a_d'), accountBalance(dated, 'a_d', '9999-12'));
+
+/* ---------------- the cash projection ---------------- */
+
+/* The worked example from the spec, pinned to fixed periods so it never drifts
+   with the real calendar: salary 18,000, four monthly bills totalling 5,700, a
+   9,000 insurance premium every January, usual purchases 3,300. Accounts hold
+   12,000 with 1,400 of bills unpaid, so the line starts at 10,600. */
+console.log('\nthe cash projection:');
+const FROM = '2026-07';
+
+let world: AppState = upsert(blankState(), 'accounts', {
+  id: 'a_f', name: 'Card', type: 'Current Account', opening: 1200000, target: 0, notes: ''
+}).state;
+world = upsert(world, 'incomeTemplates', {
+  id: 'itp_pay', source: 'Acme', category: 'Salary', frequency: 'Monthly', payDay: 28,
+  expected: 1800000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+world = upsert(world, 'billTemplates', {
+  id: 'tpl_fixed', name: 'Fixed bills', category: 'Rent', provider: '', frequency: 'Monthly',
+  dueDay: 1, expected: 570000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+world = upsert(world, 'billTemplates', {
+  id: 'tpl_ins', name: 'Insurance', category: 'Insurance', provider: '', frequency: 'Yearly',
+  dueDay: 15, expected: 900000, accountId: 'a_f', method: '', active: true, anchor: '2026-01',
+  generatedThrough: '', notes: ''
+}).state;
+// Unpaid and dated in the starting month: a commitment the bank has not taken.
+world = upsert(world, 'bills', {
+  id: 'b_out', name: 'Mobile', category: 'Mobile', provider: '', dueDate: '2026-07-20',
+  amount: 140000, accountId: 'a_f', units: null, unitRate: null, paidDate: '', method: '', notes: ''
+}).state;
+
+const line = forecast(world, { from: FROM, spending: 330000 });
+
+check('the starting line subtracts unpaid bills dated in or before this month',
+  [line.start, line.outstanding], [1060000, 140000]);
+check('the projection never includes the starting month', line.months[0]?.period, '2026-08');
+check('and runs to the horizon', line.months.length, HORIZON_MONTHS);
+
+const at = (period: string) => line.months.find((m) => m.period === period);
+check('a plain month is income less bills less spending',
+  [at('2026-08')?.bills, at('2026-08')?.surplus, at('2026-08')?.balance],
+  [570000, 900000, 1960000]);
+check('the yearly premium lands in January and nowhere else',
+  [at('2026-12')?.bills, at('2027-01')?.bills, at('2027-02')?.bills],
+  [570000, 1470000, 570000]);
+check('so January eats the whole surplus', at('2027-01')?.surplus, 0);
+check('and November is where 45,000 is first covered',
+  line.months.find((m) => m.balance >= 4500000)?.period, '2026-11');
+
+/* A hand-entered future bill must not also be projected from its template, and
+   one already paid must not be deducted a second time — cashOnHand has it. */
+let entered = upsert(world, 'bills', {
+  id: 'b_sep', templateId: 'tpl_fixed', name: 'Fixed bills', category: 'Rent', provider: '',
+  dueDate: '2026-09-01', amount: 600000, accountId: 'a_f', units: null, unitRate: null,
+  paidDate: '', method: '', notes: ''
+}).state;
+check('a hand-entered future bill replaces its template, it does not add to it',
+  forecast(entered, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.bills,
+  600000);
+
+entered = upsert(entered, 'bills', { id: 'b_sep', paidDate: '2026-07-15' }).state;
+check('and one already paid is not deducted twice',
+  forecast(entered, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.bills,
+  0);
+
+const filled = upsert(world, 'income', {
+  id: 'i_sep', templateId: 'itp_pay', date: '2026-09-28', source: 'Acme', category: 'Salary',
+  amount: 1900000, accountId: 'a_f', method: '', notes: ''
+}).state;
+check('a hand-filled month is counted once, not twice',
+  forecast(filled, { from: FROM, spending: 330000 }).months.find((m) => m.period === '2026-09')?.income,
+  1900000);
+
+/* ---------------- assumed spending ---------------- */
+
+console.log('\nassumed spending:');
+check('no purchases at all is 0, not NaN', assumedSpending(blankState(), FROM), 0);
+
+let spent: AppState = blankState();
+for (const [id, date, amount] of [
+  ['s1', '2026-04-04', 300000],   // outside the three-month window
+  ['s2', '2026-05-04', 600000],
+  ['s3', '2026-06-04', 300000],
+  ['s4', '2026-07-04', 999999]    // the current month, still running
+] as const) {
+  spent = upsert(spent, 'purchases', {
+    id, date, item: 'Shop', category: 'Groceries', amount, accountId: '', method: '', notes: ''
+  }).state;
+}
+// April, May and June: (300,000 + 600,000 + 300,000) / 3. July is ignored.
+check('the last three complete months are averaged and the current one ignored',
+  assumedSpending(spent, FROM), 400000);
+
+let young: AppState = upsert(blankState(), 'purchases', {
+  id: 's5', date: '2026-06-04', item: 'Shop', category: 'Groceries',
+  amount: 300000, accountId: '', method: '', notes: ''
+}).state;
+check('a younger database divides by fewer months', assumedSpending(young, FROM), 300000);
+young = upsert(young, 'purchases', {
+  id: 's6', date: '2026-07-20', item: 'Shop', category: 'Groceries',
+  amount: 900000, accountId: '', method: '', notes: ''
+}).state;
+check('and purchases only in the current month still average to 0',
+  assumedSpending(upsert(blankState(), 'purchases', {
+    id: 's7', date: '2026-07-20', item: 'Shop', category: 'Groceries',
+    amount: 900000, accountId: '', method: '', notes: ''
+  }).state, FROM), 0);
+check('the younger figure is unchanged by a purchase in the current month',
+  assumedSpending(young, FROM), 300000);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

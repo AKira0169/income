@@ -240,6 +240,40 @@ export interface MonthSummary {
   savingsRate: number;
 }
 
+/** One month of the cash projection. */
+export interface ForecastMonth {
+  period: Period;
+  income: Cents;
+  bills: Cents;
+  spending: Cents;
+  /** Gold and outside movements already recorded for this month; signed. */
+  other: Cents;
+  surplus: Cents;
+  /** Money on hand at the end of this month. */
+  balance: Cents;
+}
+
+export interface ForecastOptions {
+  /** Defaults to currentPeriod(). */
+  from?: Period;
+  /** How many future months. Defaults to HORIZON_MONTHS. */
+  months?: number;
+  /** Overrides forecastSpending(state). */
+  spending?: Cents;
+}
+
+export interface Forecast {
+  startPeriod: Period;
+  /** cashOnHand at startPeriod, less `outstanding`. */
+  start: Cents;
+  /** Unpaid bills dated in startPeriod or earlier. */
+  outstanding: Cents;
+  /** The assumed monthly purchases actually used. */
+  spending: Cents;
+  /** One row per future month, oldest first. Never includes startPeriod. */
+  months: ForecastMonth[];
+}
+
 /** Which way a movement pushes money relative to your savings. */
 export interface SavingsMovement {
   in: Cents;
