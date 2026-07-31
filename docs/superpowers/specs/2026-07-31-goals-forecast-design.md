@@ -54,12 +54,23 @@ of that period:
 
 | Flow | Cash date |
 | --- | --- |
-| `opening` | none — always counted |
+| `opening` | none — see below |
 | income | `date` |
 | purchases | `date` |
-| bills | `paidDate` — and only bills whose `status` is `paid` |
+| bills | `paidDate \|\| dueDate` — and only bills whose `status` is `paid` |
 | gold | `date` (buy is cash out, sell is cash in) |
 | movements | `date` |
+
+The bill rule is `paidDate || dueDate` rather than `paidDate` alone because a
+paid bill can carry an empty `paidDate`, and `periodOf('')` is `''`, which sorts
+before every real period — such a bill would otherwise count as paid in the
+distant past. The projection uses the same expression, so the two halves agree.
+
+**`opening` has no date and counts in full at every cut-off.** That is the
+correct reading rather than a limitation: an opening balance is by definition the
+money that was there before the records begin, and `Account` carries no date it
+could be filed under. Worth a comment in the code, because "as of a month" invites
+the opposite assumption.
 
 Then:
 
@@ -73,7 +84,10 @@ which is the sum of `accountBalance(state, a.id, throughPeriod)` over
 transfers cancel out correctly, and a record pointing at a deleted account is
 excluded — the same way `totalSavings` already excludes it.
 
-**Invariant, and a test:** `cashOnHand(state, '9999-12') === totalSavings(state)`.
+**Invariant:** `cashOnHand(state, '9999-12') === totalSavings(state)`. Worth a
+test, but not on its own: it holds even if the date filter is wrong in every
+other case. The test that discriminates is a hand-computed figure for the
+current period, with records deliberately placed on both sides of the cut-off.
 
 ### The starting line
 
@@ -136,9 +150,12 @@ export function assumedSpending(state: AppState, throughPeriod?: Period): Cents
 
 Uses the three months **before** `throughPeriod` (default `currentPeriod()`); the
 current month is still running and would drag the average down. Divides by the
-number of those three months that fall at or after the earliest period holding
-any record at all — so a database two months old is not averaged over three.
-Returns 0 when there is nothing to average.
+number of those three months that fall at or after **the earliest month holding a
+purchase** — so a database two months old is not averaged over three. Returns 0
+when there are no purchases at all, which also guards the divisor: the earliest
+month must come from `state.purchases` and not from `activePeriods`, which always
+includes the current month and would leave the divisor at zero on a fresh
+database.
 
 ```ts
 /** What the projection should actually use. */
@@ -218,8 +235,12 @@ export function goalQueue(state: AppState): Goal[];
 export function goalForecasts(state: AppState, f?: Forecast): GoalForecast[];
 ```
 
-`goalQueue` returns goals with an empty `boughtDate`, sorted by `priority` then
-`id` so the order is stable.
+`goalQueue` returns goals with **no** `boughtDate`, sorted by `priority` then `id`
+so the order is stable. The test is falsy (`!goal.boughtDate`), not `=== ''`:
+`readAll()` returns SQL NULL as `null`, so any column added to `goals` by a later
+build reads back `null` on an existing database rather than `''`. For the same
+reason every read site uses `price || 0` and `priority || 0`. This is the same gap
+that rules out a `bought` boolean, and it applies to the other new columns too.
 
 Edge cases, all specified:
 
@@ -282,7 +303,19 @@ Two naming choices are deliberate:
   `Bill` derives `status` from `paidDate`, and records *when* you bought it.
 
 New goals take `priority = max(existing) + 1`. Move up and move down swap
-`priority` with the neighbour in the queue.
+`priority` with the neighbour in the queue — but **not through two `upsert`
+calls**. Two calls mean two commits, two saves, and an intermediate state where
+both goals hold the same priority, so the queue order flickers and the `id`
+tiebreak decides what is rendered in between. It is one pure domain function
+returning one new state:
+
+```ts
+/** Moves a goal one place up (-1) or down (+1) the funding queue. */
+export function moveGoal(state: AppState, id: Id, delta: number): AppState
+```
+
+It lives in `forecast.ts` beside `goalQueue`, whose ordering it has to agree with,
+and is a no-op at either end of the queue.
 
 ### Storage
 
@@ -295,9 +328,12 @@ Every persistence path is generic, so adding a collection is four small edits:
 | `src/domain/records.ts` | `blankState()` gains `goals: []` — `migrate()` then loops it for free |
 | `src/data/sqlite.ts` | `TABLES.goals = ['id', 'name', 'price', 'priority', 'boughtDate', 'notes']`; `TYPES` gains `price: 'INTEGER'` and `priority: 'INTEGER'` |
 
-No change is needed in `backup.ts` (it iterates `COLLECTION_KEYS`) or in
-`state/actions.ts` (`upsert` and `remove` are generic over `CollectionKey`). An
-existing database picks the new table up because `applySchema()` runs
+No change is needed in `backup.ts` — it iterates `COLLECTION_KEYS`. In
+`state/actions.ts`, adding and deleting a goal need nothing new because `upsert`
+and `remove` are already generic over `CollectionKey`; the one addition is a
+`moveGoal(id, delta)` wrapper following the same call-domain-then-commit shape as
+the rest of the file. An existing database picks the new table up because
+`applySchema()` runs
 `CREATE TABLE IF NOT EXISTS` on every open. No index: goals are few and are never
 filtered by date.
 
@@ -382,8 +418,15 @@ real month, and that goals are funded in order.
 **`test/domain.ts`** — the engine, without a browser:
 
 - `cashOnHand(state, '9999-12')` equals `totalSavings(state)`
+- `cashOnHand` at the *current* period matches a hand-computed figure, from a
+  fixture with records deliberately on both sides of the cut-off — the far-future
+  invariant above passes even when the date filter is wrong, so this is the test
+  that actually discriminates
 - `cashOnHand` respects the cut-off: a future-dated income row is excluded, and
   a bill paid late counts in the month it was *paid*, not the month it was due
+- a paid bill with an empty `paidDate` falls under its `dueDate`, not under `''`
+- `assumedSpending` returns 0 rather than `NaN` on a database with no purchases
+- `moveGoal` reorders in one new state, and is a no-op at either end of the queue
 - the starting line subtracts unpaid bills dated in or before the current month
 - a yearly bill appears in its own month and in no other
 - a hand-entered future bill is not also projected from its template
