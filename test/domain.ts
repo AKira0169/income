@@ -9,13 +9,14 @@
 
 import { fourDigit, parse } from '../src/domain/date-parse.ts';
 import { exportJSON, importJSON } from '../src/domain/backup.ts';
-import { blankState, migrate, updateSettings, upsert } from '../src/domain/records.ts';
+import { blankState, migrate, remove, updateSettings, upsert } from '../src/domain/records.ts';
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
 import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
 import {
-  assumedSpending, forecast, goalForecasts, goalQueue, HORIZON_MONTHS, moveGoal
+  assumedSpending, forecast, goalForecasts, goalPurchase, goalQueue, HORIZON_MONTHS, moveGoal,
+  saveGoal
 } from '../src/domain/forecast.ts';
 import type { AppState } from '../src/domain/types.ts';
 
@@ -476,6 +477,90 @@ check('a bought goal drops out of the funding queue',
 const nulled = { ...planned, goals: planned.goals.map((g) => ({ ...g, boughtDate: null as unknown as '' })) };
 check('and a null bought date read back off SQLite still counts as unbought',
   goalQueue(nulled).length, 2);
+
+/* ---------------- buying one ---------------- */
+
+/* The bug this covers: "Bought" stamped a date on the goal and stopped there,
+   so the thing was ticked off the list while every account still read the same
+   figure it had a moment before. Buying has to move money. */
+console.log('\nbuying a goal:');
+
+const paidFor = saveGoal(cheap, { id: 'gol_now', boughtDate: '2026-07-20' }, { accountId: 'a_f' });
+const cablePurchase = goalPurchase(paidFor, 'gol_now');
+check('buying records a purchase against the goal',
+  [cablePurchase?.item, cablePurchase?.amount, cablePurchase?.accountId],
+  ['A cable', 100000, 'a_f']);
+check('and the money has actually left the accounts',
+  [cashOnHand(cheap, '2026-07'), cashOnHand(paidFor, '2026-07')], [1200000, 1100000]);
+check('so the projection starts from the smaller figure',
+  forecast(paidFor, { from: FROM, spending: 330000 }).start, 1100000 - 140000);
+check('and the goal is off the queue', goalQueue(paidFor).map((g) => g.id), ['gol_a', 'gol_b']);
+
+check('saving a bought goal again corrects the purchase rather than paying twice',
+  saveGoal(paidFor, { id: 'gol_now', price: 120000 }).purchases.length, 1);
+check('and the corrected amount is what leaves the account',
+  cashOnHand(saveGoal(paidFor, { id: 'gol_now', price: 120000 }), '2026-07'), 1080000);
+
+const unbought = saveGoal(paidFor, { id: 'gol_now', boughtDate: '' });
+check('clearing the date takes the purchase back out again',
+  [unbought.purchases.length, cashOnHand(unbought, '2026-07')], [0, 1200000]);
+check('and the goal rejoins the queue', goalQueue(unbought)[0]?.id, 'gol_now');
+
+/* Deleting the wishlist entry is tidying a list, not a refund. */
+const deleted = remove(paidFor, 'goals', 'gol_now');
+check('deleting a bought goal leaves its purchase, orphaned',
+  [deleted.purchases.length, deleted.purchases[0]?.goalId], [1, null]);
+check('so the money it took out stays out', cashOnHand(deleted, '2026-07'), 1100000);
+
+/* The Purchases tab writes this table through the generic upsert, and its field
+   list has no goalId — so the link survives only because upsert merges the
+   draft over the existing row. Pinned, because a field list that ever named
+   goalId would quietly turn a bought goal back into a habit. */
+const editedElsewhere = upsert(paidFor, 'purchases', {
+  id: cablePurchase?.id, date: '2026-07-20', item: 'A cable', category: 'Goal',
+  amount: 100000, accountId: 'a_f', method: 'Cash', notes: 'corner shop'
+}).state;
+check('editing a goal purchase on the Purchases tab leaves it tied to its goal',
+  [goalPurchase(editedElsewhere, 'gol_now')?.method, editedElsewhere.purchases.length],
+  ['Cash', 1]);
+check('and it is still kept out of what you usually spend',
+  assumedSpending(editedElsewhere, '2026-09'), 0);
+
+/* An account chosen as "not linked" is an answer, and a second save must not
+   quietly replace it with the default. */
+const unlinked = saveGoal(cheap, { id: 'gol_now', boughtDate: '2026-07-20' }, { accountId: '' });
+check('an unlinked purchase stays unlinked when the goal is saved again',
+  goalPurchase(saveGoal(unlinked, { id: 'gol_now', price: 110000 }), 'gol_now')?.accountId, '');
+check('while a first buy with nothing chosen falls back to the usual account',
+  goalPurchase(saveGoal(cheap, { id: 'gol_now', boughtDate: '2026-07-20' }), 'gol_now')?.accountId,
+  'a_f');
+
+/* Averaging a goal into "what you usually spend" would raise the assumed figure
+   by a third of its price for three months and push every goal behind it out. */
+const habitual = upsert(blankState(), 'purchases', {
+  id: 's_shop', date: '2026-06-04', item: 'Shop', category: 'Groceries',
+  amount: 300000, accountId: '', method: '', notes: ''
+}).state;
+const splurged = saveGoal(
+  upsert(habitual, 'goals', {
+    id: 'gol_big', name: 'RTX 5080', price: 4500000, priority: 1, boughtDate: '', notes: ''
+  }).state,
+  { id: 'gol_big', boughtDate: '2026-06-11' }
+);
+check('a goal bought last month does not become part of what you usually spend',
+  [assumedSpending(habitual, FROM), assumedSpending(splurged, FROM)], [300000, 300000]);
+// On top of June's 300,000 of groceries — kept out of the average, counted here.
+check('but it is still counted in a month the projection covers',
+  forecast(splurged, { from: '2026-05', spending: 0 }).months
+    .find((m) => m.period === '2026-06')?.spending,
+  4500000 + 300000);
+check('and a database holding nothing but a goal purchase averages to 0, not to it',
+  assumedSpending(saveGoal(
+    upsert(blankState(), 'goals', {
+      id: 'gol_only', name: 'Phone', price: 2000000, priority: 1, boughtDate: '', notes: ''
+    }).state,
+    { id: 'gol_only', boughtDate: '2026-06-11' }
+  ), FROM), 0);
 
 /* ---------------- reordering the queue ---------------- */
 

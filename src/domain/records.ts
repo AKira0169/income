@@ -154,6 +154,14 @@ export function remove(state: AppState, collection: CollectionKey, id: Id): AppS
     next = withCollection(next, 'income',
       next.income.map((r) => (r.templateId === id ? { ...r, templateId: null } : r)));
   }
+  /* Same rule for a goal you already bought: the purchase stays, orphaned.
+     Deleting the wishlist entry is tidying a list, not getting the money back,
+     and taking the purchase with it would put that money back on your balance
+     out of nowhere. */
+  if (collection === 'goals') {
+    next = withCollection(next, 'purchases',
+      next.purchases.map((p) => (p.goalId === id ? { ...p, goalId: null } : p)));
+  }
   return next;
 }
 

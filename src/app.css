@@ -468,6 +468,11 @@ input[type="checkbox"] { width: auto; accent-color: var(--ink-strong); }
    the way the rest of the sub-lines are. */
 .cell-sub.is-landing { color: var(--ink); }
 
+/* The same ledger, under the fields of the buying dialog, answering the one
+   question the form itself cannot: what is left once this has been paid. */
+.buy-note { margin-top: var(--s4); border-top: 1px solid var(--rule-strong); padding-top: var(--s2); }
+.buy-note p { margin: var(--s3) 0 0; font-size: var(--t-sm); }
+
 /* Narrow screens scroll the ledger sideways, the way every other tab does.
    Without a floor these three cells crush to one word a line instead, which is
    the one thing worse than scrolling. */

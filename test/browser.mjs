@@ -406,6 +406,44 @@ try {
   check('and the half-typed name is still there',
     await tab.evaluate(() => document.querySelector('form input[name="name"]').value), 'half typed');
 
+  /* The reported bug: "Bought" ticked the goal off and left every account
+     reading exactly what it read before, with nothing said about what would be
+     left. Buying is a purchase now, so the balance has to move — and the figure
+     has to be on screen before it does. */
+  console.log('\nbuying a goal moves real money:');
+  const beforeBuy = await tab.evaluate(() => globalThis.__app.accountBalance('acc_t'));
+  await tab.evaluate(() => [...document.querySelectorAll('main button')]
+    .find((b) => b.textContent === 'Bought').click());
+  await tab.waitForSelector('dialog input[name="price"]');
+  check('the dialog says what would be left before anything is recorded',
+    await tab.evaluate(() => {
+      const total = document.querySelector('dialog .buy-note .assume-row.is-total');
+      return !!total && /Left after buying it/.test(total.textContent);
+    }), true);
+  check('and opening it has moved nothing',
+    await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), beforeBuy);
+  check('the price is prefilled from the goal',
+    await tab.evaluate(() => document.querySelector('dialog input[name="price"]').value), '1000.00');
+  /* A purchase linked to no account moves no balance, so the figure above would
+     be a promise the tab then breaks — the option is not offered here. */
+  check('and "not linked" is not on offer for the account',
+    await tab.evaluate(() => [...document.querySelectorAll('dialog select[name="accountId"] option')]
+      .some((o) => o.value === '')), false);
+
+  await tab.evaluate(() => {
+    const form = document.querySelector('dialog form');
+    form.querySelector('select[name="accountId"]').value = 'acc_t';
+    form.requestSubmit();
+  });
+  await settle();
+  check('recording it takes the price out of the account',
+    await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), beforeBuy - 100000);
+  const goalBuy = await tab.evaluate(() =>
+    globalThis.__app.state().purchases.find((p) => p.goalId === 'gol_1'));
+  check('as a purchase linked back to the goal',
+    [goalBuy?.item, goalBuy?.amount, goalBuy?.accountId], ['First', 100000, 'acc_t']);
+  check('and the goal leaves the queue', await goalOrder(), ['Second', 'Distraction']);
+
   /* The banner is gated on the projection's average, not on month 1 alone — a
      single lumpy month must not trigger it, but a real, sustained shortfall
      must. There is no recurring bill in this fixture yet, so the average

@@ -16,12 +16,12 @@
 
 import { useState } from 'preact/hooks';
 import { formatMoney, parseMoney, plural, toMajor } from '../../domain/money.ts';
-import { periodLabel, todayISO } from '../../domain/period.ts';
+import { periodLabel } from '../../domain/period.ts';
 import {
-  forecast, goalForecasts, goalQueue, HORIZON_MONTHS, SPENDING_WINDOW
+  forecast, goalForecasts, goalPurchase, goalQueue, HORIZON_MONTHS, SPENDING_WINDOW
 } from '../../domain/forecast.ts';
-import { sum } from '../../domain/selectors.ts';
-import { moveGoal, remove, updateSettings, upsert } from '../../state/actions.ts';
+import { accountName, sum } from '../../domain/selectors.ts';
+import { moveGoal, remove, saveGoal, updateSettings } from '../../state/actions.ts';
 import { app } from '../../state/app.ts';
 import { goTab } from '../../state/route.ts';
 import type {
@@ -65,7 +65,8 @@ const MONTH_HEADERS = [
 ];
 
 const BOUGHT_HEADERS = [
-  { label: 'Goal' }, { label: 'Price', num: true }, { label: 'Bought on' }, { label: '', actions: true }
+  { label: 'Goal' }, { label: 'Paid', num: true }, { label: 'Bought on' },
+  { label: 'Paid from' }, { label: '', actions: true }
 ];
 
 /** A new goal joins the back of the queue. */
@@ -273,6 +274,12 @@ export function Goals() {
   const state = app.value;
   const [allMonths, setAllMonths] = useState(false);
   const [editing, setEditing] = useState<Goal | null>(null);
+  /* The goal being bought, and what the amount box currently says. The second
+     is held here rather than read on submit because the whole point of the
+     dialog is the figure under it — what you would have left — and that has to
+     move while the amount is being typed, not once it has been. */
+  const [buying, setBuying] = useState<Goal | null>(null);
+  const [paying, setPaying] = useState<Cents>(0);
 
   const money = (cents: Cents): string => formatMoney(cents, state.settings);
   /* Ledger columns and figures are exact; a line of prose is not a column, and
@@ -302,6 +309,24 @@ export function Goals() {
   const avgSurplus = line.months.length
     ? Math.round(sum(line.months, (m) => m.surplus) / line.months.length)
     : 0;
+
+  /* What would be left across every account the moment you paid for something.
+     `line.start` is already net of unpaid bills, so this is not a figure that
+     quietly spends the electricity money. */
+  const leftAfter = (cost: Cents): Cents => line.start - cost;
+
+  /* With no account to pay from there is nothing for the money to leave, and the
+     dialog would open on a "Paid from" list with nothing in it — a required
+     field that cannot be filled. Say why instead. */
+  const openBuy = (goal: Goal): void => {
+    if (!state.accounts.length) {
+      toast('Add an account first — buying has to take the money out of one');
+      goTab('savings');
+      return;
+    }
+    setBuying(goal);
+    setPaying(goal.price || 0);
+  };
 
   /* How far the projection ends up short, so an unreachable goal says something
      more useful than "no". */
@@ -364,9 +389,11 @@ export function Goals() {
       return `${round(shortfall(head))} short of it by the end of the projection.`;
     }
     const left = Math.max(headPrice - head.saved, 0);
-    return left
-      ? `${round(head.saved)} of ${round(headPrice)} · ${round(left)} to go`
-      : `${round(headPrice)} put by — it is covered`;
+    if (left) return `${round(head.saved)} of ${round(headPrice)} · ${round(left)} to go`;
+    /* Covered, so the useful thing to say is no longer "how much more" but what
+       the rest of the month looks like once you have actually paid — which is
+       the question buying it asks and the one the tab used not to answer. */
+    return `${round(headPrice)} put by — ${round(leftAfter(head.threshold))} left after buying it`;
   };
 
   const headline = head ? (
@@ -395,7 +422,9 @@ export function Goals() {
     if (g.monthsAway === null) {
       return { main: `Past ${HORIZON_YEARS} years`, sub: `${round(shortfall(g))} short` };
     }
-    if (g.monthsAway === 0) return { main: 'Ready now', sub: 'covered by what you have' };
+    if (g.monthsAway === 0) {
+      return { main: 'Ready now', sub: `${round(leftAfter(g.threshold))} left after buying it` };
+    }
     return { main: periodLabel(g.reachedIn, locale), sub: awayLabel(g.monthsAway) };
   };
 
@@ -443,10 +472,9 @@ export function Goals() {
               >↓</button>
             </>
           ) : null}
-          <button
-            class="quiet small"
-            onClick={() => { upsert('goals', { id: g.goal.id, boughtDate: todayISO() }); toast('Marked as bought'); }}
-          >Bought</button>
+          {/* Not a one-click status flag any more: this takes the money out of
+              an account, so it asks which one and says what is left first. */}
+          <button class="quiet small" onClick={() => openBuy(g.goal)}>Bought</button>
           <button class="quiet small" onClick={() => setEditing(g.goal)}>Edit</button>
           <button
             class="quiet small danger"
@@ -542,7 +570,7 @@ export function Goals() {
         forceOpen={!state.goals.length}
         onInvalid={() => toast('Fill in the required fields')}
         onSubmit={(data) => {
-          upsert('goals', { ...data, priority: nextPriority(state) });
+          saveGoal({ ...data, priority: nextPriority(state) });
           toast('Goal added');
         }}
       />
@@ -638,24 +666,82 @@ export function Goals() {
         <Sheet>
           <SheetHead>
             <h2>Bought</h2>
-            <span class="muted spacer">{plural(bought.length, 'goal')}</span>
+            <span class="muted spacer">
+              Each one is also a purchase, so the money has left the account named beside it.
+            </span>
           </SheetHead>
           <SheetBody flush>
             <Table headers={BOUGHT_HEADERS}>
-              {bought.map((g) => (
-                <tr key={g.id}>
-                  <td>{g.name}</td>
-                  <td class="num">{money(g.price || 0)}</td>
-                  <td class="num">{g.boughtDate}</td>
-                  <RowActions
-                    onEdit={() => setEditing(g)}
-                    onDelete={() => { if (confirmDelete('goal')) remove('goals', g.id); }}
-                  />
-                </tr>
-              ))}
+              {bought.map((g) => {
+                const purchase = goalPurchase(state, g.id);
+                return (
+                  <tr key={g.id}>
+                    <td>{g.name}</td>
+                    <td class="num">{money(purchase?.amount ?? g.price ?? 0)}</td>
+                    <td class="num">{g.boughtDate}</td>
+                    <td class={purchase ? '' : 'muted'}>
+                      {purchase
+                        ? (accountName(state, purchase.accountId) || 'not linked')
+                        : 'no purchase recorded'}
+                    </td>
+                    <RowActions
+                      onEdit={() => setEditing(g)}
+                      onDelete={() => { if (confirmDelete('goal')) remove('goals', g.id); }}
+                    />
+                  </tr>
+                );
+              })}
             </Table>
           </SheetBody>
         </Sheet>
+      ) : null}
+
+      {buying ? (
+        <Editor
+          title={`Bought ${buying.name}`}
+          fields={FIELDS.goalBuy}
+          record={buying}
+          state={state}
+          saveLabel="Record the purchase"
+          onInvalid={() => toast('Fill in the required fields')}
+          onInput={(e) => {
+            const control = (e.currentTarget as HTMLFormElement)?.elements.namedItem('price');
+            if (control instanceof HTMLInputElement) setPaying(parseMoney(control.value));
+          }}
+          note={
+            <div class="buy-note">
+              <div class="assume-row">
+                <span>On hand now</span>
+                <span class="num">{money(line.start)}</span>
+              </div>
+              <div class="assume-row">
+                <span>{buying.name}</span>
+                <span class="num">{`−${money(paying)}`}</span>
+              </div>
+              <div class="assume-row is-total">
+                <strong>Left after buying it</strong>
+                <span class={leftAfter(paying) < 0 ? 'num is-negative' : 'num'}>
+                  {money(leftAfter(paying))}
+                </span>
+              </div>
+              <p class="muted">
+                {leftAfter(paying) < 0
+                  ? `That is ${round(-leftAfter(paying))} more than you have across every account, once unpaid bills are set aside.`
+                  : 'Across every account, with unpaid bills already set aside.'}
+              </p>
+            </div>
+          }
+          onSave={(data) => {
+            const price = data['price'] as Cents;
+            saveGoal(
+              { id: buying.id, boughtDate: data['boughtDate'] as string, price },
+              { accountId: data['accountId'] as string, method: data['method'] as string }
+            );
+            // The figure the dialog promised, said again once it is true.
+            toast(`Bought · ${round(leftAfter(price))} left`);
+          }}
+          onClose={() => setBuying(null)}
+        />
       ) : null}
 
       {editing ? (
@@ -665,7 +751,10 @@ export function Goals() {
           record={editing}
           state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { upsert('goals', data); toast('Saved'); }}
+          /* Through saveGoal, not upsert: typing a date into "Bought on" here
+             has to move the money exactly as the Bought button does, and
+             clearing it has to give the money back. */
+          onSave={(data) => { saveGoal(data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}

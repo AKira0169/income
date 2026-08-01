@@ -105,6 +105,25 @@ export const FIELDS = {
     { key: 'boughtDate', label: 'Bought on', type: 'date' },
     { key: 'notes', label: 'Notes', type: 'text', wide: true }
   ],
+  /* Buying a goal is a purchase, so it asks what a purchase asks. The price is
+     what you actually paid rather than what you had guessed, and it is required
+     here even though a goal may be saved without one — a purchase for nothing
+     would take nothing out of the account and the balance would not move.
+
+     The account is required here and nowhere else. Every balance in the app is
+     summed per account, so a purchase linked to none moves nothing — which is
+     an honest reading of untracked cash on the Purchases tab, and a broken
+     promise here, where the dialog has just told you what you would have left.
+     Marking it required is also what takes the "— not linked —" option away. */
+  goalBuy: [
+    { key: 'boughtDate', label: 'Bought on', type: 'date', required: true, def: todayISO },
+    { key: 'price', label: 'What you paid', type: 'money', required: true },
+    {
+      key: 'accountId', label: 'Paid from', type: 'account', required: true,
+      def: (s: AppState) => lastAccountFor(s, 'purchases')
+    },
+    { key: 'method', label: 'Paid with', type: 'select', options: PAYMENT_METHODS, def: 'Card' }
+  ],
   gold: [
     { key: 'date', label: 'Date', type: 'date', required: true, def: todayISO },
     {

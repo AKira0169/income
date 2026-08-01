@@ -109,6 +109,12 @@ export interface Bill {
 
 export interface Purchase {
   id: Id;
+  /* Set when this row is a goal being bought; nulled if that goal is deleted,
+     the same way a generated bill outlives its template — the money really did
+     move. It is also what keeps a goal out of the forecast's assumed spending:
+     buying an RTX 5080 is not a habit, and averaging it forward would push
+     every goal behind it months out for no reason. */
+  goalId: Id | null;
   date: IsoDate;
   item: string;
   category: Category;

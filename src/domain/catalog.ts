@@ -24,8 +24,12 @@ export const BILL_CATEGORIES: readonly string[] = [
 export const PURCHASE_CATEGORIES: readonly string[] = [
   'Groceries', 'Dining Out', 'Household', 'Clothing', 'Electronics',
   'Pharmacy', 'Fuel', 'Transport', 'Entertainment', 'Gifts',
-  'Home Improvement', 'Kids', 'Pets', 'Travel', 'Personal Care', 'Other'
+  'Home Improvement', 'Kids', 'Pets', 'Travel', 'Personal Care', 'Goal', 'Other'
 ];
+
+/** What a goal bought off the Goals tab is filed under, so the breakdown says
+    where the money went rather than burying it in "Other". */
+export const GOAL_CATEGORY = 'Goal';
 
 export const PAYMENT_METHODS: readonly string[] = [
   'Bank Transfer', 'Direct Debit', 'Card', 'Cash', 'Standing Order',

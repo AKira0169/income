@@ -82,8 +82,16 @@ export function recordGoldPrice(reading: Gold.GoldPriceReading): GoldPrice {
   return result.record;
 }
 
-/* Adding and deleting a goal need nothing here — upsert and remove are already
-   generic over CollectionKey. Reordering is the one write with a rule. */
+/* Deleting a goal needs nothing here — remove is already generic over
+   CollectionKey, and orphaning its purchase is a rule inside it. Saving one
+   does not go through the generic upsert, because a goal carries a purchase
+   with it once it is bought. */
+export function saveGoal(
+  draft: Records.Draft<'goals'>, paid: Forecast.GoalPayment = {}
+): void {
+  commit(Forecast.saveGoal(app.peek(), draft, paid));
+}
+
 export function moveGoal(id: Id, delta: number): void {
   const next = Forecast.moveGoal(app.peek(), id, delta);
   if (next !== app.peek()) commit(next);

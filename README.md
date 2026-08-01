@@ -109,6 +109,9 @@ Three things make the answer honest:
   It is why a goal can land in March rather than February.
 - **Usual purchases** are the average of your last three complete months —
   the current month is still running, so counting it would drag the figure down.
+  A goal you bought is left out of that average: it is a purchase, but it is not
+  a habit, and averaging one in would raise your supposed spending by a third of
+  its price for three months and push every goal behind it out for no reason.
   You can type your own figure instead.
 - **Goals are funded in order.** The second goal's target is its own price plus
   the first one's, so its date accounts for buying the first. Move a goal up or
@@ -122,9 +125,16 @@ projected balance climbing through them. A goal is yours where the line clears
 the top of its band, which is where its mark sits — numbered with its place in
 the list underneath.
 
-Nothing here writes anything: the forecast reads your recurring set-up and
-returns numbers. Marking a goal as bought files it under **Bought** with the
-date, and the queue closes up behind it.
+The forecast itself writes nothing: it reads your recurring set-up and returns
+numbers. **Bought** does write, because buying something is not a status change
+— it asks the date, what you actually paid and which account it came out of,
+shows what you would have left before you commit, and then records a purchase.
+The goal moves to the **Bought** list, the queue closes up behind it, and every
+balance in the app drops by what you paid.
+
+Clearing the "Bought on" date puts the money back by removing that purchase, so
+a mistake is undoable. Deleting the goal does not: the purchase stays, orphaned,
+because tidying a wishlist is not a refund.
 
 ### Gold
 

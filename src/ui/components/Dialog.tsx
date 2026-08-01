@@ -26,10 +26,21 @@ export interface EditorProps {
   onInvalid?: () => void;
   /** Any control changing — for a form whose shape depends on its own answers. */
   onChange?: (e: Event) => void;
+  /* `change` on a text box only fires when it loses focus, which is too late
+     for a figure that is meant to answer "and what would I have left" while the
+     amount is still being typed. */
+  /** Every keystroke, for a form that shows a figure derived from its answers. */
+  onInput?: (e: Event) => void;
+  /** Shown under the fields — the consequence of what has been filled in. */
+  note?: preact.ComponentChildren;
+  /** Defaults to "Save changes". */
+  saveLabel?: string;
   onClose: () => void;
 }
 
-export function Editor({ title, fields, record, state, onSave, onInvalid, onChange, onClose }: EditorProps) {
+export function Editor({
+  title, fields, record, state, onSave, onInvalid, onChange, onInput, note, saveLabel, onClose
+}: EditorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useLayoutEffect(() => {
@@ -46,6 +57,7 @@ export function Editor({ title, fields, record, state, onSave, onInvalid, onChan
       <form
         method="dialog"
         onChange={onChange}
+        onInput={onInput}
         onSubmit={(e: Event) => {
           e.preventDefault();
           const data = readForm(e.currentTarget as HTMLFormElement, fields);
@@ -59,10 +71,11 @@ export function Editor({ title, fields, record, state, onSave, onInvalid, onChan
         <div class="dialog-head">{title}</div>
         <div class="dialog-body">
           <FormGrid fields={fields} record={record} state={state} />
+          {note}
         </div>
         <div class="dialog-foot">
           <button type="button" onClick={onClose}>Cancel</button>
-          <button class="primary" type="submit">Save changes</button>
+          <button class="primary" type="submit">{saveLabel ?? 'Save changes'}</button>
         </div>
       </form>
     </dialog>

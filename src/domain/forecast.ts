@@ -11,11 +11,14 @@
    invariant of the recurring model, and writing future months here would put
    data in the database the user never asked for. */
 
+import { GOAL_CATEGORY } from './catalog.ts';
 import { currentPeriod, occursIn, periodOf, shiftPeriod } from './period.ts';
-import { withCollection } from './records.ts';
-import { billCashDate, cashOnHand, purchasesIn, sum } from './selectors.ts';
+import { remove, upsert, withCollection } from './records.ts';
+import type { Draft } from './records.ts';
+import { billCashDate, cashOnHand, lastAccountFor, purchasesIn, sum } from './selectors.ts';
 import type {
-  AppState, Cents, Forecast, ForecastMonth, ForecastOptions, Goal, GoalForecast, Id, Period
+  AppState, Cents, Forecast, ForecastMonth, ForecastOptions, Goal, GoalForecast, Id, Period,
+  Purchase
 } from './types.ts';
 
 /** Five years. Far enough that "not within the horizon" really means never. */
@@ -24,6 +27,13 @@ export const HORIZON_MONTHS = 60;
 export const SPENDING_WINDOW = 3;
 
 /* ------------------------------------------------------- assumed spending */
+
+/* A goal you bought is not a habit. It is recorded as a purchase because that is
+   what it is — money leaving an account — but averaging one into the assumed
+   monthly figure would raise your supposed spending by a third of its price for
+   the next three months, and push every goal still in the queue out by months
+   on the strength of a purchase you have already made. */
+const isHabit = (p: Purchase): boolean => !p.goalId;
 
 /* Average one-off purchases over the last SPENDING_WINDOW complete months. The
    months *before* throughPeriod, because the current one is still running and
@@ -39,6 +49,7 @@ export function assumedSpending(state: AppState, throughPeriod?: Period): Cents 
 
   let earliest = '';
   for (const p of state.purchases) {
+    if (!isHabit(p)) continue;
     const period = periodOf(p.date);
     if (!period) continue;
     if (!earliest || period < earliest) earliest = period;
@@ -51,7 +62,7 @@ export function assumedSpending(state: AppState, throughPeriod?: Period): Cents 
     const period = shiftPeriod(through, -back);
     if (period < earliest) continue;
     months++;
-    total += sum(purchasesIn(state, period), (r) => r.amount || 0);
+    total += sum(purchasesIn(state, period).filter(isHabit), (r) => r.amount || 0);
   }
   return months ? Math.round(total / months) : 0;
 }
@@ -126,7 +137,10 @@ export function forecast(state: AppState, opts: ForecastOptions = {}): Forecast 
     }
 
     /* A future-dated purchase is something you know about on top of your usual
-       habits, so it adds to the assumed figure rather than replacing it. */
+       habits, so it adds to the assumed figure rather than replacing it. Goal
+       purchases are counted here, unlike in the average above: a goal you have
+       dated next month really does take that money out next month, and the
+       reason it is kept out of the average is only that it is not repeating. */
     const purchases = sum(purchasesIn(state, period), (r) => r.amount || 0);
 
     /* Gold bought or sold, and movements in or out from outside your accounts.
@@ -210,6 +224,63 @@ export function goalForecasts(state: AppState, f?: Forecast): GoalForecast[] {
   }
   return out;
 }
+
+/* ------------------------------------------------------------ buying one */
+
+/** How a goal was paid for. Anything left out keeps whatever the purchase
+    already had, or the default any other purchase would get. */
+export interface GoalPayment {
+  accountId?: Id | '';
+  method?: string;
+}
+
+/** The purchase recording a goal you bought, or null while you are still
+    saving. */
+export const goalPurchase = (state: AppState, id: Id): Purchase | null =>
+  state.purchases.find((p) => p.goalId === id) ?? null;
+
+/* Writes a goal and keeps the purchase that pays for it in step.
+
+   Buying is two changes that have to hold together: the goal is stamped with a
+   date, and a purchase takes the money out of an account. Only the second one
+   moves a balance. Stamping the date on its own — which is all "Bought" used to
+   do — left "on hand" reading exactly what it read before, so the app agreed
+   you owned the thing and denied you had paid for it.
+
+   One function rather than a rule inside the Bought button, because the date
+   can also be typed into the goal editor, and a purchase only one of the two
+   paths wrote is the same bug wearing a different hat. Clearing the date
+   removes the purchase again: the inverse has to hold, or undoing a mistake
+   leaves the money spent for ever.
+
+   The purchase is found by goalId rather than created blind, so saving a bought
+   goal twice corrects the row instead of spending the money a second time. */
+export function saveGoal(
+  state: AppState, draft: Draft<'goals'>, paid: GoalPayment = {}
+): AppState {
+  const saved = upsert(state, 'goals', draft);
+  const goal = saved.record;
+  const linked = goalPurchase(saved.state, goal.id);
+
+  if (!goal.boughtDate) {
+    return linked ? remove(saved.state, 'purchases', linked.id) : saved.state;
+  }
+  return upsert(saved.state, 'purchases', {
+    id: linked?.id,
+    goalId: goal.id,
+    date: goal.boughtDate,
+    item: goal.name,
+    category: linked?.category || GOAL_CATEGORY,
+    amount: goal.price || 0,
+    /* ?? and not ||: '' is a real answer here — "not linked to an account" —
+       and would otherwise be overwritten by the default on every save. */
+    accountId: paid.accountId ?? linked?.accountId ?? lastAccountFor(saved.state, 'purchases'),
+    method: paid.method ?? linked?.method ?? 'Card',
+    notes: linked?.notes ?? ''
+  }).state;
+}
+
+/* --------------------------------------------------------- reordering */
 
 /* Moves a goal one place up (-1) or down (+1) the funding queue, and is a no-op
    at either end.

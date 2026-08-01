@@ -115,7 +115,7 @@ export const TABLES: TableMap = {
   incomeTemplates: ['id', 'source', 'category', 'frequency', 'payDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
   billTemplates: ['id', 'name', 'category', 'provider', 'frequency', 'dueDay', 'expected', 'accountId', 'method', 'active', 'anchor', 'generatedThrough', 'notes'],
   bills: ['id', 'templateId', 'name', 'category', 'provider', 'period', 'dueDate', 'amount', 'accountId', 'units', 'unitRate', 'status', 'paidDate', 'method', 'notes'],
-  purchases: ['id', 'date', 'item', 'category', 'amount', 'accountId', 'method', 'notes'],
+  purchases: ['id', 'goalId', 'date', 'item', 'category', 'amount', 'accountId', 'method', 'notes'],
   accounts: ['id', 'name', 'type', 'target', 'opening', 'notes'],
   goals: ['id', 'name', 'price', 'priority', 'boughtDate', 'notes'],
   savingsTx: ['id', 'date', 'accountId', 'fromAccountId', 'direction', 'amount', 'notes'],
