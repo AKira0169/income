@@ -18,7 +18,8 @@ import {
   defaultSavingsAccount, lastAccountFor, summary, totalSavings
 } from '../src/domain/selectors.ts';
 import { borrow, owedAfter, payoffProgress, repay } from '../src/domain/debt.ts';
-import { reconcile, reconciliation } from '../src/domain/reconcile.ts';
+import { countWithCorrections } from '../src/domain/money.ts';
+import { isAdjustment, reconcile, reconciliation } from '../src/domain/reconcile.ts';
 import {
   assumedSpending, forecast, goalForecasts, goalPurchase, goalQueue, HORIZON_MONTHS, moveGoal,
   saveGoal
@@ -711,6 +712,73 @@ check('the difference can be read before anything is written',
 const drifting = reconcile(owing, 'a_card', 940000, '2026-06-20');
 check('a correction counts towards what you usually spend',
   assumedSpending(drifting, '2026-07'), 60000);
+
+/* A correction is a real row, so it is counted and totalled like any other —
+   and that is exactly why the ledger has to say which rows it wrote. A month
+   you were paid three times listing five entries is a bug report unless the
+   two extra ones name themselves. */
+check('a correction says it is one, and an ordinary row does not',
+  [isAdjustment(over.income[0]!), isAdjustment(drifted.purchases[0]!),
+    isAdjustment({ category: 'Salary' })],
+  [true, true, false]);
+check('the count says how many of its rows nobody typed in',
+  countWithCorrections(5, 2, 'entry', 'entries'), '5 entries (3 entered, 2 corrections)');
+check('and stays out of the way when there are none',
+  countWithCorrections(3, 0, 'entry', 'entries'), '3 entries');
+check('one correction is singular',
+  countWithCorrections(2, 1, 'item'), '2 items (1 entered, 1 correction)');
+
+/* ---------------- gold is money put aside, not money spent ---------------- */
+
+/* Gold used to fall through every figure on the Dashboard: `accountFlows`
+   deducted it from the balance, but the month's summary counted it as neither
+   spending nor saving, so income − spent − saved did not come to what the
+   account did. It is the same event as a transfer into a pot — an asset you
+   still own — so it is read the same way. */
+console.log('\ngold counts as saving:');
+
+const metalBought = upsert(owing, 'gold', {
+  date: '2026-07-08', direction: 'buy', karat: 21, grams: 10, pricePerGram: 12000,
+  amount: 120000, accountId: 'a_card', dealer: '', notes: ''
+}).state;
+const metalSummary = summary(metalBought, '2026-07');
+
+check('buying gold is money put aside, not money spent',
+  [metalSummary.savedIn, metalSummary.spent], [120000, 0]);
+check('and the account it came out of is down by exactly that',
+  accountBalance(metalBought, 'a_card'), 880000);
+check('so the month accounts for every pound that left the account',
+  accountBalance(metalBought, 'a_card'),
+  1000000 + metalSummary.income - metalSummary.spent - metalSummary.savedNet);
+
+const sold = upsert(metalBought, 'gold', {
+  date: '2026-07-20', direction: 'sell', karat: 21, grams: 4, pricePerGram: 13000,
+  amount: 52000, accountId: 'a_card', dealer: '', notes: ''
+}).state;
+check('selling it is raiding that pot rather than earning',
+  [summary(sold, '2026-07').savedOut, summary(sold, '2026-07').income], [52000, 0]);
+check('so the two net off the way a pot does',
+  summary(sold, '2026-07').savedNet, 120000 - 52000);
+
+/* The same guard savingsMovement applies to a transfer, for the same reason:
+   metal bought on the lender's money is not this month's pay put aside. */
+const onTick = upsert(borrowed, 'gold', {
+  date: '2026-07-09', direction: 'buy', karat: 21, grams: 10, pricePerGram: 12000,
+  amount: 120000, accountId: debt().account.id, dealer: '', notes: ''
+}).state;
+check('gold bought on a debt is not saving',
+  summary(onTick, '2026-07').savedIn, 0);
+check('but it still deepens what you owe',
+  debtSummaries(onTick)[0]!.owed, 300000 + 120000);
+
+/* Gold linked to no account is missing data, not a different event — the same
+   reading income and purchases with no account already get. */
+const unlinkedGold = upsert(owing, 'gold', {
+  date: '2026-07-08', direction: 'buy', karat: 21, grams: 1, pricePerGram: 12000,
+  amount: 12000, accountId: '', dealer: '', notes: ''
+}).state;
+check('gold linked to no account still counts as put aside',
+  summary(unlinkedGold, '2026-07').savedIn, 12000);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

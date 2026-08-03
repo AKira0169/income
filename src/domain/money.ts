@@ -45,6 +45,19 @@ export function plural(count: number, one: string, many?: string): string {
   return `${count} ${count === 1 ? one : (many ?? `${one}s`)}`;
 }
 
+/* A row count that says where its own rows came from. Reconciling writes real
+   ledger entries, so a month you were paid three times can honestly list five —
+   and a bare "5 entries" against three you remember typing reads as duplicated
+   data rather than as the correction it is. Silent when there are none, which
+   is nearly always. */
+export function countWithCorrections(
+  total: number, corrections: number, one: string, many?: string
+): string {
+  const all = plural(total, one, many);
+  if (!corrections) return all;
+  return `${all} (${total - corrections} entered, ${plural(corrections, 'correction')})`;
+}
+
 export interface FormatMoneyOptions {
   /** Drop the minor units — used where the decimals are noise, e.g. chart axes. */
   round?: boolean;

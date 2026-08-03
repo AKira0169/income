@@ -32,7 +32,17 @@
 import { ADJUSTMENT_CATEGORY, ADJUSTMENT_LABEL } from './catalog.ts';
 import { upsert } from './records.ts';
 import { accountBalance } from './selectors.ts';
-import type { AppState, Cents, Id, IsoDate, Reconciliation } from './types.ts';
+import type { AppState, Category, Cents, Id, IsoDate, Reconciliation } from './types.ts';
+
+/* Whether a row is one of the corrections written below rather than something
+   typed in. The ledgers ask, because a row nobody entered has to say so: a
+   month you were paid three times can honestly list five income entries, and
+   without the label the extra two read as duplicates — which is a bug report,
+   not a correction. Matching on the category rather than the source keeps a row
+   labelled after it has been renamed, and labels one categorised by hand as a
+   correction too, which it is. */
+export const isAdjustment = (record: { category?: Category }): boolean =>
+  record.category === ADJUSTMENT_CATEGORY;
 
 /* What reconciling would do, worked out before anything is written, so the
    dialog can show the difference while it is still being typed and say the same

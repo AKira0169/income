@@ -1,8 +1,9 @@
 /* ui/tabs/Income.tsx — one-off income, and the recurring set-up behind it. */
 
 import { useState } from 'preact/hooks';
-import { formatMoney, plural } from '../../domain/money.ts';
+import { countWithCorrections, formatMoney, plural } from '../../domain/money.ts';
 import { monthlyEquivalent, periodLabel } from '../../domain/period.ts';
+import { isAdjustment } from '../../domain/reconcile.ts';
 import { sortByDateDesc } from '../../domain/records.ts';
 import { accountName, incomeIn, sum } from '../../domain/selectors.ts';
 import { generateIncome, linkGeneratedTo, remove, upsert } from '../../state/actions.ts';
@@ -47,6 +48,7 @@ export function Income() {
 
   const records = sortByDateDesc(allTime ? state.income : incomeIn(state, period), 'date');
   const total = sum(records, (r) => r.amount);
+  const corrections = records.filter(isAdjustment).length;
   const templates = state.incomeTemplates;
   const money = (cents: number): string => formatMoney(cents, state.settings);
   const label = periodLabel(period, state.settings.locale);
@@ -57,8 +59,11 @@ export function Income() {
       <td>
         <div>{r.source}</div>
         {/* Generated rows are marked so you can tell what the app filled in
-            from what you entered by hand. */}
+            from what you entered by hand. A correction is the other kind the
+            app writes for you — reconciling this account found money that had
+            arrived and was never entered. */}
         {r.templateId ? <span class="cell-sub">Recurring</span> : null}
+        {isAdjustment(r) ? <span class="cell-sub">Correction</span> : null}
       </td>
       <td class="muted">{r.category}</td>
       <td class="num">{money(r.amount)}</td>
@@ -110,7 +115,9 @@ export function Income() {
       <Sheet>
         <SheetHead>
           <h2>{allTime ? 'All income' : label}</h2>
-          <span class="muted">{plural(records.length, 'entry', 'entries')}</span>
+          <span class="muted">
+            {countWithCorrections(records.length, corrections, 'entry', 'entries')}
+          </span>
           <div class="spacer"><ScopeToggle allTime={allTime} onChange={setAllTime} /></div>
           {!allTime && templates.length ? (
             <button

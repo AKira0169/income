@@ -11,8 +11,8 @@ import { billIsOverdue } from './recurring.ts';
 import { currentPeriod, isoOf, periodOf, shiftPeriod } from './period.ts';
 import type {
   Account, AccountFlows, AppState, Bill, Category, CategoryTotal, Cents,
-  CollectionKey, DebtSummary, Id, IncomeEntry, IsoDate, MonthSummary, Period,
-  Purchase, SavingsMovement, SavingsTx, UpcomingBill
+  CollectionKey, DebtSummary, GoldEntry, Id, IncomeEntry, IsoDate, MonthSummary,
+  Period, Purchase, SavingsMovement, SavingsTx, UpcomingBill
 } from './types.ts';
 
 export function sum<T>(list: readonly T[], pick: (item: T) => number): Cents;
@@ -34,6 +34,9 @@ export const billsIn = (state: AppState, period: Period): Bill[] =>
 
 export const savingsTxIn = (state: AppState, period: Period): SavingsTx[] =>
   state.savingsTx.filter((r) => periodOf(r.date) === period);
+
+export const goldIn = (state: AppState, period: Period): GoldEntry[] =>
+  state.gold.filter((r) => periodOf(r.date) === period);
 
 /* --------------------------------------------------------------- accounts */
 
@@ -232,6 +235,23 @@ export function savingsMovement(state: AppState, tx: SavingsTx): SavingsMovement
   return tx.direction === 'out' ? { in: 0, out: amount } : { in: amount, out: 0 };
 }
 
+/* Gold, read the same way. Buying it is money put aside in metal rather than in
+   a pot, so it counts as saving and not as spending — and selling it is raiding
+   that pot. Leaving it out of both was a hole rather than a choice: the cash
+   left the account, `accountFlows` deducted it, and the month's story accounted
+   for it nowhere, so income − spent − saved did not come to what the balance
+   did.
+
+   The debt guard is savingsMovement's, for savingsMovement's reason: gold
+   bought on the lender's money is not this month's pay put aside. Gold linked
+   to no account still counts, the same way income and purchases linked to none
+   still count — an untracked account is missing data, not a different event. */
+export function goldMovement(state: AppState, entry: GoldEntry): SavingsMovement {
+  const amount = entry.amount || 0;
+  if (isDebtAccount(byId(state, 'accounts', entry.accountId))) return { in: 0, out: 0 };
+  return entry.direction === 'sell' ? { in: 0, out: amount } : { in: amount, out: 0 };
+}
+
 /* ---------------------------------------------------------------- rollups */
 
 export function summary(state: AppState, period: Period): MonthSummary {
@@ -241,8 +261,11 @@ export function summary(state: AppState, period: Period): MonthSummary {
   const billsPaid = sum(bills.filter((b) => b.status === 'paid'), (r) => r.amount);
   const purchases = sum(purchasesIn(state, period), (r) => r.amount);
   const tx = savingsTxIn(state, period);
-  const savedIn = sum(tx, (t) => savingsMovement(state, t).in);
-  const savedOut = sum(tx, (t) => savingsMovement(state, t).out);
+  const metal = goldIn(state, period);
+  const savedIn = sum(tx, (t) => savingsMovement(state, t).in)
+    + sum(metal, (g) => goldMovement(state, g).in);
+  const savedOut = sum(tx, (t) => savingsMovement(state, t).out)
+    + sum(metal, (g) => goldMovement(state, g).out);
   const spent = billsTotal + purchases;
 
   return {

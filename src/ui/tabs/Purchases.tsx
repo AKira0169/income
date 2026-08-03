@@ -1,8 +1,9 @@
 /* ui/tabs/Purchases.tsx — one-off spending. */
 
 import { useState } from 'preact/hooks';
-import { formatMoney, plural } from '../../domain/money.ts';
+import { countWithCorrections, formatMoney } from '../../domain/money.ts';
 import { periodLabel } from '../../domain/period.ts';
+import { isAdjustment } from '../../domain/reconcile.ts';
 import { sortByDateDesc } from '../../domain/records.ts';
 import { purchasesIn, sum } from '../../domain/selectors.ts';
 import { remove, upsert } from '../../state/actions.ts';
@@ -32,13 +33,19 @@ export function Purchases() {
 
   const records = sortByDateDesc(allTime ? state.purchases : purchasesIn(state, period), 'date');
   const total = sum(records, (r) => r.amount);
+  const corrections = records.filter(isAdjustment).length;
   const money = (cents: number): string => formatMoney(cents, state.settings);
   const label = periodLabel(period, state.settings.locale);
 
   const row = (r: Purchase) => (
     <tr key={r.id}>
       <td class="num">{r.date}</td>
-      <td>{r.item}</td>
+      <td>
+        <div>{r.item}</div>
+        {/* Written by the app rather than typed in: reconciling this account
+            found spending that had happened and was never entered. */}
+        {isAdjustment(r) ? <span class="cell-sub">Correction</span> : null}
+      </td>
       <td class="muted">{r.category}</td>
       <td class="num">{money(r.amount)}</td>
       <AccountCell record={r} state={state} />
@@ -68,7 +75,7 @@ export function Purchases() {
       <Sheet>
         <SheetHead>
           <h2>{allTime ? 'All purchases' : label}</h2>
-          <span class="muted">{plural(records.length, 'item')}</span>
+          <span class="muted">{countWithCorrections(records.length, corrections, 'item')}</span>
           <div class="spacer"><ScopeToggle allTime={allTime} onChange={setAllTime} /></div>
           <span class="num">{money(total)}</span>
         </SheetHead>

@@ -1,12 +1,13 @@
 /* ui/tabs/Dashboard.tsx — the month at a glance. */
 
-import { formatMoney, plural } from '../../domain/money.ts';
+import { countWithCorrections, formatMoney, plural } from '../../domain/money.ts';
 import { periodLabel } from '../../domain/period.ts';
 import { goldSummary } from '../../domain/gold.ts';
 import { forecast, goalForecasts, goalQueue } from '../../domain/forecast.ts';
+import { isAdjustment } from '../../domain/reconcile.ts';
 import {
-  accountBalance, billsIn, debtSummaries, groupByCategory, heldAccounts, incomeIn,
-  purchasesIn, summary, totalSavings, trend, upcomingBills
+  accountBalance, billsIn, debtSummaries, goldIn, groupByCategory, heldAccounts,
+  incomeIn, purchasesIn, summary, totalSavings, trend, upcomingBills
 } from '../../domain/selectors.ts';
 import { app } from '../../state/app.ts';
 import { period as routePeriod } from '../../state/route.ts';
@@ -187,17 +188,25 @@ export function Dashboard() {
   const outgoings: Array<Bill | Purchase> = [...billsIn(state, period), ...purchasesIn(state, period)];
   const money = (cents: Cents): string => formatMoney(cents, state.settings);
 
+  const income = incomeIn(state, period);
+  const purchases = purchasesIn(state, period);
+
+  /* Gold bought this month lands in Saved rather than Spent, so the tile says
+     so. A figure that moved for a reason it does not give is exactly what makes
+     these numbers look wrong when they are right. */
+  const rate = s.income > 0 ? `${Math.round(s.savingsRate * 100)}% of income` : 'no income recorded';
+  const savedNote = goldIn(state, period).length ? `${rate} · gold included` : rate;
+
   return (
     <div class="stack">
       <div class="figures">
         <Figure label="Income" value={money(s.income)}
-          note={plural(incomeIn(state, period).length, 'entry', 'entries')} />
+          note={countWithCorrections(income.length, income.filter(isAdjustment).length, 'entry', 'entries')} />
         <Figure label="Spent" value={money(s.spent)}
-          note={`${plural(s.billCount, 'bill')}, ${plural(purchasesIn(state, period).length, 'purchase')}`} />
+          note={`${plural(s.billCount, 'bill')}, ${plural(purchases.length, 'purchase')}`} />
         <Figure label="Net" value={money(s.net)}
           note={s.net >= 0 ? 'kept this month' : 'overspent'} negative={s.net < 0} />
-        <Figure label="Saved" value={money(s.savedNet)}
-          note={s.income > 0 ? `${Math.round(s.savingsRate * 100)}% of income` : 'no income recorded'} />
+        <Figure label="Saved" value={money(s.savedNet)} note={savedNote} />
       </div>
 
       {s.overdueCount ? (
