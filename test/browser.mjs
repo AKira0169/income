@@ -508,6 +508,106 @@ try {
   });
   await settle();
 
+  /* ---------------- money you owe ---------------- */
+
+  /* Driven through the real dialogs, because the arithmetic is already pinned
+     in the domain suite and what is untested is the wiring: that the form
+     writes an account and a movement together, and that the two figures the
+     tab shows — what you hold and what you are worth — move apart by exactly
+     what was borrowed and back together when it is paid off. */
+  console.log('\nborrowing and paying back, through the tab:');
+  // The Accounts tab's route id is `savings` — it predates the rename.
+  await tab.evaluate(() => globalThis.__app.goTab('savings'));
+  await tab.waitForSelector('.accounts');
+
+  const heldBefore = await tab.evaluate(() => globalThis.__app.accountBalance('acc_t'));
+  const txBefore = await tab.evaluate(() => globalThis.__app.state().savingsTx.length);
+  const worth = () => tab.evaluate(() => globalThis.__app.state().accounts
+    .reduce((total, a) => total + globalThis.__app.accountBalance(a.id), 0));
+  const worthBefore = await worth();
+
+  await tab.evaluate(() => [...document.querySelectorAll('main button')]
+    .find((b) => b.textContent === 'Record a debt').click());
+  await tab.waitForSelector('dialog input[name="name"]');
+  check('the debt form will not let the money land nowhere',
+    await tab.evaluate(() => [...document.querySelectorAll('dialog select[name="intoAccountId"] option')]
+      .some((o) => o.value === '')), false);
+  await tab.evaluate(() => {
+    const form = document.querySelector('dialog form');
+    form.querySelector('input[name="name"]').value = 'Brother-in-law';
+    form.querySelector('input[name="amount"]').value = '3,000.00';
+    form.querySelector('.dp-text').value = '05/07/2026';
+    form.querySelector('.dp-text').dispatchEvent(new Event('blur'));
+    form.querySelector('select[name="intoAccountId"]').value = 'acc_t';
+    form.requestSubmit();
+  });
+  await settle();
+
+  const debtAccount = await tab.evaluate(() =>
+    globalThis.__app.state().accounts.find((a) => a.type === 'Loan / Debt'));
+  check('one form writes both the debt and the movement',
+    [debtAccount?.name, await tab.evaluate(() => globalThis.__app.state().savingsTx.length)],
+    ['Brother-in-law', txBefore + 1]);
+  check('the money is in the account it landed in',
+    await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), heldBefore + 300000);
+  check('and what you are worth has not moved', await worth(), worthBefore);
+  check('the tab says what is owed', await tab.evaluate(() => {
+    const fig = [...document.querySelectorAll('.figure')].find((f) => f.textContent.includes('Owed'));
+    return !!fig && fig.classList.contains('is-negative');
+  }), true);
+
+  await tab.evaluate(() => [...document.querySelectorAll('.account.is-debt button')]
+    .find((b) => b.textContent === 'Repay').click());
+  await tab.waitForSelector('dialog input[name="amount"]');
+  check('the repay dialog says what would still be owed',
+    await tab.evaluate(() => {
+      const total = document.querySelector('dialog .buy-note .assume-row.is-total');
+      return !!total && /Still owed after/.test(total.textContent);
+    }), true);
+  await tab.evaluate(() => {
+    const form = document.querySelector('dialog form');
+    form.querySelector('input[name="amount"]').value = '3000';
+    form.querySelector('select[name="fromAccountId"]').value = 'acc_t';
+    form.requestSubmit();
+  });
+  await settle();
+  check('paying it off returns every figure to where it started',
+    [await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), await worth()],
+    [heldBefore, worthBefore]);
+  check('and the debt card reads as settled', await tab.evaluate(() =>
+    !!document.querySelector('.account.is-debt .account-balance.is-settled')), true);
+
+  /* ---------------- reconciling ---------------- */
+
+  console.log('\nreconciling an account against the real one:');
+  const tracked = await tab.evaluate(() => globalThis.__app.accountBalance('acc_t'));
+  await tab.evaluate(() => [...document.querySelectorAll('.account:not(.is-debt) button')]
+    .find((b) => b.textContent === 'Reconcile').click());
+  await tab.waitForSelector('dialog input[name="actual"]');
+  check('it opens on the figure it is correcting, so the difference starts at nothing',
+    await tab.evaluate(() => {
+      const total = document.querySelector('dialog .buy-note .assume-row.is-total');
+      return !!total && /Difference/.test(total.textContent);
+    }), true);
+  check('and opening it has moved nothing',
+    await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), tracked);
+
+  const short = tracked - 12345;
+  await tab.evaluate((value) => {
+    const form = document.querySelector('dialog form');
+    const box = form.querySelector('input[name="actual"]');
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    form.requestSubmit();
+  }, (short / 100).toFixed(2));
+  await settle();
+  check('the account now says exactly what it was told it really has',
+    await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), short);
+  const correction = await tab.evaluate(() => globalThis.__app.state().purchases
+    .find((p) => p.category === 'Adjustment'));
+  check('written as a purchase you can see, edit and delete',
+    [correction?.amount, correction?.accountId], [12345, 'acc_t']);
+
   console.log('\ngoals survive the SQLite round-trip:');
   await open();
   const storedGoal = await tab.evaluate(() =>
@@ -516,6 +616,20 @@ try {
   check('price and priority come back as numbers',
     [typeof storedGoal?.price, typeof storedGoal?.priority], ['number', 'number']);
   check('and their values are unchanged', [storedGoal?.price, storedGoal?.priority], [100000, 1]);
+
+  /* A debt is an ordinary account row, so it has to survive the same round-trip
+     as one typed into the account form — including the type string, which is
+     what every debt rule keys off. */
+  const storedDebt = await tab.evaluate(() =>
+    globalThis.__app.state().accounts.find((a) => a.name === 'Brother-in-law'));
+  check('a debt comes back out of SQLite as a debt',
+    [storedDebt?.type, storedDebt?.opening, storedDebt?.target], ['Loan / Debt', 0, 0]);
+  check('with both of its movements, and settled',
+    await tab.evaluate((id) => [
+      globalThis.__app.state().savingsTx
+        .filter((t) => t.accountId === id || t.fromAccountId === id).length,
+      globalThis.__app.accountBalance(id)
+    ], storedDebt?.id), [2, 0]);
 
   /* ---------------- leave nothing behind ---------------- */
   await tab.evaluate(() => globalThis.__app.clearAll());

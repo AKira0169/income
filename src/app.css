@@ -489,7 +489,19 @@ input[type="checkbox"] { width: auto; accent-color: var(--ink-strong); }
 .account-balance { font-family: var(--font-mono); font-size: var(--t-lg); margin-top: var(--s2); letter-spacing: -.02em; }
 
 .account-balance.is-negative { color: var(--ink-danger); }
+.account-balance.is-settled { color: var(--ink-success); }
 td.is-negative { color: var(--ink-danger); }
+.bar-value.is-negative { color: var(--ink-danger); }
+
+/* A debt is still an account card, marked down its edge rather than recoloured:
+   what is owed is already the red number inside it, and a red card as well
+   would read as an error rather than as a balance. Its bar fills as the debt is
+   paid off, which is why it is drawn here and not by TargetProgress — that one
+   measures a balance against a target it is climbing towards, and a debt is
+   doing the opposite. */
+.account.is-debt { border-left: 3px solid var(--mark-danger); }
+.account.is-debt .progress { margin-top: var(--s2); }
+.account.is-debt .progress > div { background: var(--ink-success); }
 
 /* Where a balance came from, in the order money moved. */
 .flows { margin-top: var(--s3); border-top: 1px solid var(--rule); padding-top: var(--s2); }

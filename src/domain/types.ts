@@ -20,9 +20,12 @@ export type GoldDirection = 'buy' | 'sell';
 /** `transfer` moves between two accounts; `in`/`out` reach outside them. */
 export type SavingsDirection = 'in' | 'out' | 'transfer';
 
+/** `Loan / Debt` is money you owe: an account whose balance is negative until
+    it is paid off. See DEBT_TYPE in catalog.ts. */
 export type AccountType =
   | 'Current Account' | 'Card / Wallet' | 'Savings' | 'Emergency Fund'
-  | 'Fixed Deposit' | 'Investment' | 'Pension' | 'Cash' | 'Goal Pot' | 'Other';
+  | 'Fixed Deposit' | 'Investment' | 'Pension' | 'Cash' | 'Goal Pot'
+  | 'Loan / Debt' | 'Other';
 
 /* Categories stay `string`: they are offered as a list but a database written
    by an older build may hold anything, and a union would reject it on load. */
@@ -226,6 +229,33 @@ export interface AccountFlows {
   savedOut: Cents;
   /** Net cost of gold: bought less sold. */
   gold: Cents;
+}
+
+/** One debt, as the screen reads it. Every figure is derived from the account's
+    own flows, so it can never disagree with the balance it is made of. */
+export interface DebtSummary {
+  account: Account;
+  /** Everything that put you further in: what you borrowed, and anything paid
+      straight out of the lender's money. */
+  borrowed: Cents;
+  /** Everything that brought you back out again. */
+  repaid: Cents;
+  /** `borrowed − repaid`, and exactly the negated account balance. */
+  owed: Cents;
+  /** Nothing left to pay. Also true of a debt overpaid, where `owed` is < 0. */
+  settled: boolean;
+}
+
+/** What reconciling an account against its real balance would do, before
+    anything is written. */
+export interface Reconciliation {
+  accountId: Id;
+  /** What the app's own records add up to. */
+  tracked: Cents;
+  /** What the bank, or the notes in your pocket, actually say. */
+  actual: Cents;
+  /** `actual − tracked`. Negative means money left and was never entered. */
+  difference: Cents;
 }
 
 export interface MonthSummary {

@@ -7,13 +7,15 @@
    commit would leave the screen showing the old figures. */
 
 import * as Backup from '../domain/backup.ts';
+import * as Debt from '../domain/debt.ts';
 import * as Forecast from '../domain/forecast.ts';
 import * as Gold from '../domain/gold.ts';
 import * as Records from '../domain/records.ts';
+import * as Reconcile from '../domain/reconcile.ts';
 import * as Recurring from '../domain/recurring.ts';
 import { app, commit, snapshot } from './app.ts';
 import type {
-  CatchUpResult, CollectionKey, GoldPrice, Id, Period, RecordOf, Settings
+  CatchUpResult, Cents, CollectionKey, GoldPrice, Id, IsoDate, Period, RecordOf, Settings
 } from '../domain/types.ts';
 
 export function upsert<K extends CollectionKey>(
@@ -95,4 +97,27 @@ export function saveGoal(
 export function moveGoal(id: Id, delta: number): void {
   const next = Forecast.moveGoal(app.peek(), id, delta);
   if (next !== app.peek()) commit(next);
+}
+
+/* ------------------------------------------------- debts and reconciling */
+
+/* Borrowing writes an account and a movement together, so neither goes through
+   the generic upsert: a debt with no movement is an obligation whose money
+   never arrived, and a movement with no account has nowhere to come from. */
+export function borrow(taken: Debt.Borrowing): void {
+  commit(Debt.borrow(app.peek(), taken));
+}
+
+export function repay(debtId: Id, paid: Debt.Repayment): void {
+  const next = Debt.repay(app.peek(), debtId, paid);
+  if (next !== app.peek()) commit(next);
+}
+
+/** Writes the row that makes an account agree with its real balance, and says
+    what it corrected by. Zero means it already agreed and nothing was written. */
+export function reconcile(accountId: Id, actual: Cents, date: IsoDate): Cents {
+  const state = app.peek();
+  const { difference } = Reconcile.reconciliation(state, accountId, actual);
+  if (difference) commit(Reconcile.reconcile(state, accountId, actual, date));
+  return difference;
 }

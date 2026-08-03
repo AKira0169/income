@@ -9,9 +9,9 @@ import { plural } from '../domain/money.ts';
 import { monthlyEquivalent, periodLabel, todayISO } from '../domain/period.ts';
 import { billIsOverdue } from '../domain/recurring.ts';
 import {
-  accountBalance, accountFlows, accountName, activePeriods, billsIn, groupByCategory,
-  incomeIn, purchasesIn, savingsBalance, savingsMovement, savingsTxIn, sum, summary,
-  totalSavings
+  accountBalance, accountFlows, accountName, accountsHeld, activePeriods, billsIn,
+  debtOwed, groupByCategory, incomeIn, isDebtAccount, purchasesIn, savingsBalance,
+  savingsMovement, savingsTxIn, sum, summary, totalSavings
 } from '../domain/selectors.ts';
 import { goldHoldings, goldIn, goldPricePerGram, goldSummary } from '../domain/gold.ts';
 import { write } from './xlsx.ts';
@@ -280,23 +280,37 @@ function accountsSheet(state: AppState): AccountsSheet {
   for (const a of state.accounts) {
     const f = accountFlows(state, a.id);
     const balance = accountBalance(state, a.id);
+    /* A debt's balance is negative and climbing towards zero, so a target read
+       against it would print a percentage running backwards from −100%. The
+       column is left empty rather than reinterpreted: what is owed is already
+       the balance, and the Accounts tab draws the payoff bar this cannot. */
+    const target = a.target && !isDebtAccount(a) ? a.target : 0;
     rows.push([
       a.name || '', a.type || '', money(a.opening),
       money(f.income + f.savedIn),
       money(f.purchases + f.bills + f.savedOut + f.gold),
       money(balance),
-      a.target ? money(a.target) : null,
-      a.target ? { t: 'percent', v: balance / a.target } : null,
+      target ? money(target) : null,
+      target ? { t: 'percent', v: balance / target } : null,
       a.notes || '',
       money(f.income), money(f.purchases), money(f.bills), money(f.gold),
       money(f.savedIn), money(f.savedOut)
     ]);
   }
   const total = totalSavings(state);
+  const owed = debtOwed(state);
   rows.push([]);
+  /* The column total nets debts off on its own, because their balances are
+     negative — which is the point of holding them as accounts. The line under
+     it says how much of the difference they are, so the figure can be checked
+     against what you hold rather than taken on trust. */
   rows.push([bold('Across all accounts'), null, null, null, null,
     columnTotal('F', 2, state.accounts.length + 1, total)]);
   rows.push([bold('Of which savings pots'), null, null, null, null, moneyBold(savingsBalance(state))]);
+  if (owed) {
+    rows.push([bold('Held before debts'), null, null, null, null, moneyBold(accountsHeld(state))]);
+    rows.push([bold('Owed'), null, null, null, null, moneyBold(-owed)]);
+  }
 
   return {
     name: 'Savings Accounts', freeze: 1,
@@ -605,6 +619,13 @@ function summarySheet(state: AppState, scope: Scope, sel: ScopeSelection, sheets
     f: `SUM(${sheetRef('Savings Accounts', `F2:F${Math.max(state.accounts.length + 1, 2)}`)})`,
     v: sheets.accounts.total / 100, s: 'moneyBold'
   }, `${plural(state.accounts.length, 'account')} (all time)`);
+  /* Said under the total rather than instead of it: the total is already net of
+     what is owed, and the reader needs to see both halves to believe it. */
+  if (debtOwed(state)) {
+    line('Held before debts', { t: 'money', v: accountsHeld(state) / 100, s: 'money' });
+    line('Owed', { t: 'money', v: -debtOwed(state) / 100, s: 'money' },
+      plural(state.accounts.filter(isDebtAccount).length, 'debt'));
+  }
   rows.push([]);
 
   /* Only when there is gold to report. An empty block on everyone else's

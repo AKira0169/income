@@ -13,7 +13,12 @@ import { blankState, migrate, remove, updateSettings, upsert } from '../src/doma
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
 import { attachPersistence, app } from '../src/state/app.ts';
 import { upsert as commitUpsert } from '../src/state/actions.ts';
-import { accountBalance, billCashDate, cashOnHand, totalSavings } from '../src/domain/selectors.ts';
+import {
+  accountBalance, accountsHeld, billCashDate, cashOnHand, debtOwed, debtSummaries,
+  defaultSavingsAccount, lastAccountFor, summary, totalSavings
+} from '../src/domain/selectors.ts';
+import { borrow, owedAfter, payoffProgress, repay } from '../src/domain/debt.ts';
+import { reconcile, reconciliation } from '../src/domain/reconcile.ts';
 import {
   assumedSpending, forecast, goalForecasts, goalPurchase, goalQueue, HORIZON_MONTHS, moveGoal,
   saveGoal
@@ -577,6 +582,135 @@ check('moving down from the bottom is a no-op', moveGoal(planned, 'gol_b', 1) ==
 check('moving a goal that is not in the queue is a no-op',
   moveGoal(planned, 'nope', 1) === planned, true);
 check('a delta of zero is a no-op too', moveGoal(planned, 'gol_a', 0) === planned, true);
+
+/* ---------------- money you owe ---------------- */
+
+/* The invariant the whole design rests on: borrowing changes what is in your
+   accounts and leaves what you are worth exactly where it was. Everything the
+   feature promises — that a goal is not funded out of a loan, that the
+   projection does not offer you the lender's money — is that one line holding.
+   Held as an account with a negative balance, it holds by arithmetic rather
+   than by a rule someone has to remember to apply in five places. */
+console.log('\nmoney you owe:');
+
+let owing: AppState = upsert(blankState(), 'accounts', {
+  id: 'a_card', name: 'Card', type: 'Current Account', opening: 1000000, target: 0, notes: ''
+}).state;
+owing = upsert(owing, 'accounts', {
+  id: 'a_pot', name: 'Rainy day', type: 'Savings', opening: 0, target: 0, notes: ''
+}).state;
+
+const borrowed = borrow(owing, {
+  name: 'Brother-in-law', amount: 300000, date: '2026-07-05', intoAccountId: 'a_card'
+});
+const debt = () => debtSummaries(borrowed)[0]!;
+
+check('borrowing puts the money in the account it landed in',
+  accountBalance(borrowed, 'a_card'), 1300000);
+check('and records the same sum as owed',
+  [debt().borrowed, debt().repaid, debt().owed, debt().settled], [300000, 0, 300000, false]);
+check('so what you hold went up but what you are worth did not',
+  [accountsHeld(borrowed), totalSavings(borrowed)], [1300000, 1000000]);
+check('the debt is named after whoever lent it',
+  debt().account.name, 'Brother-in-law');
+check('and it is one account and one movement, not a table of its own',
+  [borrowed.accounts.length, borrowed.savingsTx.length], [3, 1]);
+
+/* The projection is the thing people act on, so this is the check that matters
+   most: a loan sitting in the current account must not read as money to spend. */
+check('the projection starts from what is yours, not from what is in the bank',
+  forecast(borrowed, { from: '2026-07', spending: 0 }).start,
+  forecast(owing, { from: '2026-07', spending: 0 }).start);
+
+check('what is owed is dated, so it is not owed before it was borrowed',
+  [debtOwed(borrowed, '2026-06'), debtOwed(borrowed, '2026-07')], [0, 300000]);
+
+/* Borrowing into a pot is the case that would otherwise report a month where
+   you saved three hundred thousand pounds of someone else's money. */
+const intoPot = borrow(owing, {
+  name: 'Brother-in-law', amount: 300000, date: '2026-07-05', intoAccountId: 'a_pot'
+});
+check('borrowing into a savings pot is not saving',
+  [summary(intoPot, '2026-07').savedIn, summary(intoPot, '2026-07').savingsRate], [0, 0]);
+
+/* Paying back. */
+const partly = repay(borrowed, debt().account.id, {
+  amount: 100000, date: '2026-08-03', fromAccountId: 'a_card'
+});
+const partial = debtSummaries(partly)[0]!;
+check('repaying takes the cash out and the debt down together',
+  [accountBalance(partly, 'a_card'), partial.owed], [1200000, 200000]);
+check('and still leaves what you are worth where it started',
+  totalSavings(partly), 1000000);
+check('the card reads how much of it is behind you',
+  [partial.borrowed, partial.repaid, Math.round(payoffProgress(partial) * 100)],
+  [300000, 100000, 33]);
+check('paying it back is not spending your savings either',
+  summary(partly, '2026-08').savedOut, 0);
+
+const settled = repay(partly, partial.account.id, {
+  amount: 200000, date: '2026-09-01', fromAccountId: 'a_card'
+});
+check('paying the rest settles it',
+  [debtSummaries(settled)[0]!.owed, debtSummaries(settled)[0]!.settled], [0, true]);
+check('and every figure is back exactly where it began',
+  [accountsHeld(settled), totalSavings(settled), debtOwed(settled)], [1000000, 1000000, 0]);
+
+check('overpaying settles the debt rather than lending to them',
+  owedAfter(partial, 500000), 0);
+
+/* Borrowing again from the same person deepens the one debt rather than
+   opening a second — which is only true because the sum is read back off the
+   movements instead of written down once when the account was opened. */
+const again = borrow(borrowed, {
+  debtId: debt().account.id, name: 'ignored', amount: 50000,
+  date: '2026-08-01', intoAccountId: 'a_card'
+});
+check('borrowing again adds to the same debt',
+  [again.accounts.length, debtSummaries(again)[0]!.borrowed, debtSummaries(again)[0]!.owed],
+  [3, 350000, 350000]);
+
+check('repaying something that is not a debt is a no-op',
+  repay(borrowed, 'a_card', { amount: 1, date: '2026-08-01', fromAccountId: 'a_pot' }) === borrowed,
+  true);
+
+/* A debt must never be what a blank form proposes, or an ordinary purchase
+   would quietly land on the loan and deepen it. */
+check('a debt is never the account a form defaults to',
+  [lastAccountFor(borrowed, 'purchases'), defaultSavingsAccount(borrowed)], ['a_card', 'a_pot']);
+
+/* ---------------- making an account agree with the real one ---------------- */
+
+/* The problem: months of small card taps nobody enters, and a balance that has
+   drifted away from the bank's with no entry available to close the gap. */
+console.log('\nreconciling an account:');
+
+const drifted = reconcile(owing, 'a_card', 940000, '2026-07-31');
+check('a shortfall is recorded as spending that was never entered',
+  [drifted.purchases.length, drifted.purchases[0]?.category, drifted.purchases[0]?.amount],
+  [1, 'Adjustment', 60000]);
+check('and the account now says what the bank says',
+  accountBalance(drifted, 'a_card'), 940000);
+check('reconciling the same figure again writes nothing',
+  reconcile(drifted, 'a_card', 940000, '2026-08-01') === drifted, true);
+
+const over = reconcile(owing, 'a_card', 1050000, '2026-07-31');
+check('money over is recorded as income that arrived and was never entered',
+  [over.income.length, over.income[0]?.category, over.income[0]?.amount],
+  [1, 'Adjustment', 50000]);
+check('and that account agrees too', accountBalance(over, 'a_card'), 1050000);
+
+check('an account already telling the truth is left exactly as it was',
+  reconcile(owing, 'a_card', 1000000, '2026-07-31') === owing, true);
+check('the difference can be read before anything is written',
+  reconciliation(owing, 'a_card', 940000).difference, -60000);
+
+/* The mirror of the goal exclusion: a goal is kept out of the average because
+   it does not repeat, and drift is put in because it does. If the app keeps
+   finding you six hundred short, six hundred is part of what you spend. */
+const drifting = reconcile(owing, 'a_card', 940000, '2026-06-20');
+check('a correction counts towards what you usually spend',
+  assumedSpending(drifting, '2026-07'), 60000);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

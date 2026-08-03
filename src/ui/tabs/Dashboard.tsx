@@ -5,8 +5,8 @@ import { periodLabel } from '../../domain/period.ts';
 import { goldSummary } from '../../domain/gold.ts';
 import { forecast, goalForecasts, goalQueue } from '../../domain/forecast.ts';
 import {
-  accountBalance, billsIn, groupByCategory, incomeIn, purchasesIn, summary,
-  totalSavings, trend, upcomingBills
+  accountBalance, billsIn, debtSummaries, groupByCategory, heldAccounts, incomeIn,
+  purchasesIn, summary, totalSavings, trend, upcomingBills
 } from '../../domain/selectors.ts';
 import { app } from '../../state/app.ts';
 import { period as routePeriod } from '../../state/route.ts';
@@ -101,9 +101,15 @@ function AccountsPanel({ state, goldValue, goldGrams }: {
     );
   }
 
+  /* Debts are listed under what you hold rather than among it. Their balances
+     are negative and already inside the total in the heading, so leaving them
+     out of the list entirely would leave that total unexplained by its own
+     rows — which is the one thing every figure in this app avoids. */
+  const debts = debtSummaries(state).filter((d) => !d.settled);
+
   return (
     <div class="stack-tight">
-      {state.accounts.map((a) => {
+      {heldAccounts(state).map((a) => {
         const balance = accountBalance(state, a.id);
         return (
           <div key={a.id}>
@@ -123,6 +129,14 @@ function AccountsPanel({ state, goldValue, goldGrams }: {
           </div>
         </div>
       ) : null}
+      {debts.map((d) => (
+        <div key={d.account.id}>
+          <div class="bar-row">
+            <div class="bar-name muted">{`Owed · ${d.account.name}`}</div>
+            <div class="bar-value is-negative">{`−${formatMoney(d.owed, state.settings)}`}</div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

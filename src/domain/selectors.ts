@@ -5,14 +5,14 @@
    without a browser, and what lets the UI hold the state in a signal without
    these knowing anything about it. */
 
-import { SAVINGS_TYPES } from './catalog.ts';
+import { DEBT_TYPE, SAVINGS_TYPES } from './catalog.ts';
 import { byId } from './records.ts';
 import { billIsOverdue } from './recurring.ts';
 import { currentPeriod, isoOf, periodOf, shiftPeriod } from './period.ts';
 import type {
   Account, AccountFlows, AppState, Bill, Category, CategoryTotal, Cents,
-  CollectionKey, Id, IncomeEntry, IsoDate, MonthSummary, Period, Purchase,
-  SavingsMovement, SavingsTx, UpcomingBill
+  CollectionKey, DebtSummary, Id, IncomeEntry, IsoDate, MonthSummary, Period,
+  Purchase, SavingsMovement, SavingsTx, UpcomingBill
 } from './types.ts';
 
 export function sum<T>(list: readonly T[], pick: (item: T) => number): Cents;
@@ -41,11 +41,28 @@ export function isSavingsAccount(account: Account | null | undefined): boolean {
   return !!account && SAVINGS_TYPES.includes(account.type);
 }
 
+/** Money you owe rather than money you have. Its balance runs negative. */
+export function isDebtAccount(account: Account | null | undefined): boolean {
+  return !!account && account.type === DEBT_TYPE;
+}
+
+/** The ones holding money, in the order they were added. */
+export const heldAccounts = (state: AppState): Account[] =>
+  state.accounts.filter((a) => !isDebtAccount(a));
+
+export const debtAccounts = (state: AppState): Account[] =>
+  state.accounts.filter(isDebtAccount);
+
 /** The account's own name, or '' when it has been deleted. Used by both the
     screens and the workbook, which is why it lives here rather than in either. */
 export function accountName(state: AppState, id: Id | '' | null | undefined): string {
   return byId(state, 'accounts', id)?.name ?? '';
 }
+
+/* Debts are skipped by both defaults below. A debt account can legitimately be
+   chosen — spending the lender's money straight out of it is a real thing that
+   correctly deepens what you owe — but it must never be what a blank form
+   proposes, or an ordinary purchase would quietly land on the loan. */
 
 /** The account you last used for this kind of record. Nearly every entry goes
     to the same place as the one before it, so this is the right default. */
@@ -53,14 +70,16 @@ export function lastAccountFor(state: AppState, collection: CollectionKey): Id |
   const list = state[collection] as ReadonlyArray<{ accountId?: Id | '' }>;
   for (let i = list.length - 1; i >= 0; i--) {
     const id = list[i]?.accountId;
-    if (id && byId(state, 'accounts', id)) return id;
+    const account = id ? byId(state, 'accounts', id) : null;
+    if (account && !isDebtAccount(account)) return id as Id;
   }
-  return state.accounts[0]?.id ?? '';
+  return heldAccounts(state)[0]?.id ?? '';
 }
 
 /** Where money put aside tends to go: the first savings-type account. */
 export function defaultSavingsAccount(state: AppState): Id | '' {
-  const pot = state.accounts.find(isSavingsAccount) ?? state.accounts[0];
+  const held = heldAccounts(state);
+  const pot = held.find(isSavingsAccount) ?? held[0];
   return pot?.id ?? '';
 }
 
@@ -134,9 +153,44 @@ export function accountBalance(state: AppState, accountId: Id, throughPeriod?: P
   return f.opening + f.income + f.savedIn - f.purchases - f.bills - f.savedOut - f.gold;
 }
 
+/* Every account added together, debts included — so this is what you are worth
+   across them, not what you could spend. A debt's balance is negative, which is
+   the whole reason it can be an ordinary account: it takes itself off here
+   without a rule written to say so. `accountsHeld` is the other half of the
+   question, and the two differ by exactly `debtOwed`. */
 export function totalSavings(state: AppState): Cents {
   return sum(state.accounts, (a) => accountBalance(state, a.id));
 }
+
+/** What is actually sitting in your accounts, before anything owed is taken
+    off. */
+export function accountsHeld(state: AppState): Cents {
+  return sum(heldAccounts(state), (a) => accountBalance(state, a.id));
+}
+
+/** What you still owe, as a positive figure. Zero when you owe nothing. */
+export function debtOwed(state: AppState, throughPeriod?: Period): Cents {
+  return -sum(debtAccounts(state), (a) => accountBalance(state, a.id, throughPeriod));
+}
+
+/* One debt broken into the two things you want to see: how deep it went and how
+   much of it you have paid back. Both are read off the same flows the balance
+   is, so `borrowed − repaid` is the balance by construction and the card cannot
+   show a total its own lines disagree with.
+
+   Which flow lands on which side is decided by direction, not by name: money
+   out of the lender's account deepens the debt whether it went to your card or
+   straight to a shop, and money into it pays the debt down. */
+export function debtSummary(state: AppState, account: Account): DebtSummary {
+  const f = accountFlows(state, account.id);
+  const borrowed = f.savedOut + f.purchases + f.bills + f.gold + Math.max(0, -f.opening);
+  const repaid = f.savedIn + f.income + Math.max(0, f.opening);
+  const owed = borrowed - repaid;
+  return { account, borrowed, repaid, owed, settled: owed <= 0 };
+}
+
+export const debtSummaries = (state: AppState): DebtSummary[] =>
+  debtAccounts(state).map((a) => debtSummary(state, a));
 
 /* Every account added together, as of the end of `throughPeriod`. Summed per
    account rather than over the raw tables so that transfers cancel out and a
@@ -157,8 +211,17 @@ export function savingsBalance(state: AppState): Cents {
 export function savingsMovement(state: AppState, tx: SavingsTx): SavingsMovement {
   const amount = tx.amount || 0;
   const to = byId(state, 'accounts', tx.accountId);
+  const from = byId(state, 'accounts', tx.fromAccountId);
+
+  /* A debt on either leg is neither. Borrowing is not saving even when the
+     money lands in a pot — left in, a loan paid into an emergency fund would
+     report a month where you put the whole sum aside, on money that is not
+     yours. Paying it back is not raiding the pot either: both legs move what
+     you own against what you owe, which is not what you did with this month's
+     pay, and the savings rate is only ever asking the second question. */
+  if (isDebtAccount(to) || isDebtAccount(from)) return { in: 0, out: 0 };
+
   if (tx.direction === 'transfer') {
-    const from = byId(state, 'accounts', tx.fromAccountId);
     const into = isSavingsAccount(to);
     const outOf = isSavingsAccount(from);
     if (into && !outOf) return { in: amount, out: 0 };

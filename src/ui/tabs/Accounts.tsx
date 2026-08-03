@@ -1,21 +1,26 @@
-/* ui/tabs/Accounts.tsx — every place money sits, and what moved it there.
+/* ui/tabs/Accounts.tsx — every place money sits, what you owe against it, and
+   what moved either.
 
    A balance is arithmetic you can check, so each card shows the flows it is
-   made of rather than just the total. */
+   made of rather than just the total. Debts get their own cards for the same
+   reason, read the only way a debt makes sense — how deep it went, how much is
+   behind you, what is left — rather than as an account with a minus sign. */
 
 import { useState } from 'preact/hooks';
-import { formatMoney, plural } from '../../domain/money.ts';
-import { periodLabel } from '../../domain/period.ts';
+import { owedAfter, payoffProgress } from '../../domain/debt.ts';
+import { formatMoney, parseMoney, plural } from '../../domain/money.ts';
+import { periodLabel, todayISO } from '../../domain/period.ts';
 import { sortByDateDesc } from '../../domain/records.ts';
+import { reconciliation } from '../../domain/reconcile.ts';
 import {
-  accountBalance, accountFlows, accountName, isSavingsAccount, savingsBalance,
-  savingsTxIn, totalSavings
+  accountBalance, accountFlows, accountName, debtOwed, debtSummaries, heldAccounts,
+  isSavingsAccount, accountsHeld, savingsBalance, savingsTxIn, totalSavings
 } from '../../domain/selectors.ts';
 import { goldSummary } from '../../domain/gold.ts';
-import { remove, upsert } from '../../state/actions.ts';
+import { borrow, reconcile, remove, repay, upsert } from '../../state/actions.ts';
 import { app } from '../../state/app.ts';
 import { period as routePeriod } from '../../state/route.ts';
-import type { Account, AppState, SavingsTx } from '../../domain/types.ts';
+import type { Account, AppState, Cents, DebtSummary, SavingsTx } from '../../domain/types.ts';
 import { Editor } from '../components/Dialog.tsx';
 import { Figure, FlowLine, TargetProgress } from '../components/Figure.tsx';
 import { ScopeToggle } from '../components/ScopeToggle.tsx';
@@ -35,6 +40,9 @@ const HEADERS = [
 ];
 
 const BLANK_ACCOUNT = { name: '', type: 'Current Account', opening: 0, target: 0, notes: '' };
+
+/** Opening a new debt, or borrowing more from someone you already owe. */
+type BorrowTarget = 'new' | DebtSummary;
 
 /* "From" only means anything for a transfer, so it is not on screen otherwise —
    the old form left it there with display:none and a hand-written listener
@@ -64,14 +72,29 @@ function useDirection(initial: string) {
   return { direction, setDirection, onChange };
 }
 
+/** Reads one money field out of a form as it is typed, for a dialog showing
+    what its own answers would come to. */
+function moneyAsTyped(e: Event, key: string): Cents | null {
+  const control = (e.currentTarget as HTMLFormElement)?.elements.namedItem(key);
+  return control instanceof HTMLInputElement ? parseMoney(control.value) : null;
+}
+
 export function Accounts() {
   const state = app.value;
   const period = routePeriod.value;
   const [allTime, setAllTime] = useState(false);
   const [editing, setEditing] = useState<Account | 'new' | null>(null);
   const [editingTx, setEditingTx] = useState<SavingsTx | null>(null);
+  const [borrowing, setBorrowing] = useState<BorrowTarget | null>(null);
+  const [repaying, setRepaying] = useState<DebtSummary | null>(null);
+  const [paying, setPaying] = useState<Cents>(0);
+  const [reconciling, setReconciling] = useState<Account | null>(null);
+  const [actual, setActual] = useState<Cents>(0);
 
   const accounts = state.accounts;
+  const held = heldAccounts(state);
+  const debts = debtSummaries(state);
+  const owed = debtOwed(state);
   const txs = sortByDateDesc(allTime ? state.savingsTx : savingsTxIn(state, period), 'date');
   const gold = goldSummary(state);
   const money = (cents: number): string => formatMoney(cents, state.settings);
@@ -83,6 +106,15 @@ export function Accounts() {
   const saveMovement = (data: FormData): void => {
     if (data.direction !== 'transfer') data.fromAccountId = '';
     upsert('savingsTx', data);
+  };
+
+  /* Both debt dialogs need somewhere for the money to come from or go to, and
+     a debt account is not it. Said once here rather than discovered as a
+     silent no-op after the form has been filled in. */
+  const needsAnAccount = (): boolean => {
+    if (held.length) return false;
+    toast('Add an account first — the money has to move somewhere');
+    return true;
   };
 
   const card = (a: Account) => {
@@ -106,6 +138,11 @@ export function Accounts() {
             <div class="muted">{a.type}</div>
           </div>
           <div class="actions" style="margin-left:auto">
+            <button
+              class="quiet small"
+              title="Make this agree with what the bank really says"
+              onClick={() => { setActual(balance); setReconciling(a); }}
+            >Reconcile</button>
             <button class="quiet small" onClick={() => setEditing(a)}>Edit</button>
             <button
               class="quiet small danger"
@@ -129,6 +166,58 @@ export function Accounts() {
             </div>
           )
           : <div class="muted">Nothing has moved yet.</div>}
+      </div>
+    );
+  };
+
+  /* A debt reads the other way round from an account: the headline is what is
+     left to pay, and the bar fills as you pay it rather than as it grows. */
+  const debtCard = (d: DebtSummary) => {
+    const pct = Math.round(payoffProgress(d) * 100);
+    return (
+      <div class="account is-debt" key={d.account.id}>
+        <div class="account-top">
+          <div>
+            <div class="account-name">{d.account.name}</div>
+            <div class="muted">{d.settled ? 'Settled' : `${money(d.repaid)} of ${money(d.borrowed)} paid back`}</div>
+          </div>
+          <div class="actions" style="margin-left:auto">
+            {d.settled ? null : (
+              <button
+                class="quiet small"
+                onClick={() => { if (!needsAnAccount()) { setPaying(0); setRepaying(d); } }}
+              >Repay</button>
+            )}
+            <button
+              class="quiet small"
+              title="They lent you more"
+              onClick={() => { if (!needsAnAccount()) setBorrowing(d); }}
+            >Borrow more</button>
+            <button class="quiet small" onClick={() => setEditing(d.account)}>Edit</button>
+            <button
+              class="quiet small danger"
+              onClick={() => {
+                const ok = confirm(
+                  `Delete "${d.account.name}" and every movement against it? This cannot be undone.\n\n`
+                  + 'The money you borrowed stays in whichever account it landed in, so your balances '
+                  + 'will read higher by what you still owe.');
+                if (ok) remove('accounts', d.account.id);
+              }}
+            >Delete</button>
+          </div>
+        </div>
+        <div class={d.settled ? 'account-balance is-settled' : 'account-balance is-negative'}>
+          {d.settled ? money(0) : money(d.owed)}
+        </div>
+        <div class="progress"><div style={`width:${pct}%`} /></div>
+        <div class="muted">{d.settled ? 'Nothing left to pay' : `${pct}% paid back`}</div>
+        {/* Signed against what is owed, not against the account's balance —
+            the headline above is a debt, so the lines have to add up to it:
+            borrowed raises it, paid back brings it down. */}
+        <div class="flows">
+          <FlowLine label="Borrowed" amount={d.borrowed} settings={state.settings} />
+          <FlowLine label="Paid back" amount={d.repaid} settings={state.settings} negative />
+        </div>
       </div>
     );
   };
@@ -158,18 +247,51 @@ export function Accounts() {
     );
   };
 
+  const drift = reconciling ? reconciliation(state, reconciling.id, actual) : null;
+
   return (
     <div class="stack">
       <div class="figures">
-        <Figure label="Across all accounts" value={money(totalSavings(state))}
-          note={plural(accounts.length, 'account')} />
+        <Figure label="Across all accounts" value={money(accountsHeld(state))}
+          note={plural(held.length, 'account')} />
         <Figure label="In savings pots" value={money(savingsBalance(state))}
           note={plural(accounts.filter(isSavingsAccount).length, 'pot')} />
+        {debts.length
+          ? <Figure label="Owed" value={money(owed)} negative={owed > 0}
+            note={owed > 0 ? plural(debts.filter((d) => !d.settled).length, 'debt') : 'all settled'} />
+          : null}
         <Figure label="Gold" value={money(gold.value)}
           note={gold.value ? `${gold.pure.toFixed(2)} g of pure gold` : 'none held'} />
         <Figure label="Total worth" value={money(totalSavings(state) + gold.value)}
-          note="accounts and gold together" />
+          note={owed > 0 ? 'accounts and gold, after what you owe' : 'accounts and gold together'} />
       </div>
+
+      {/* Above the accounts on purpose. Borrowed money sits in a real balance,
+          so it has to be recorded before that balance is reconciled against the
+          bank — otherwise the loan is absorbed as income you never earned. */}
+      <Sheet>
+        <SheetHead>
+          <h2>Money you owe</h2>
+          <span class="muted spacer">
+            {debts.length
+              ? 'Taken off every total, so nothing here is offered to you as savings.'
+              : 'Borrowed money is not yours. Record it and the rest of the app stops counting it.'}
+          </span>
+          <button onClick={() => { if (!needsAnAccount()) setBorrowing('new'); }}>Record a debt</button>
+        </SheetHead>
+        <SheetBody>
+          {debts.length
+            ? <div class="accounts">{debts.map(debtCard)}</div>
+            : (
+              <div class="empty">
+                <strong>You owe nothing</strong>
+                Money borrowed from family, a friend or anyone else goes here. It stays in
+                whichever account it landed in, but stops counting as yours — so goals are
+                not funded out of it and the projection does not promise it to you.
+              </div>
+            )}
+        </SheetBody>
+      </Sheet>
 
       <Sheet>
         <SheetHead>
@@ -180,8 +302,8 @@ export function Accounts() {
           <button class="primary" onClick={() => setEditing('new')}>Add account</button>
         </SheetHead>
         <SheetBody>
-          {accounts.length
-            ? <div class="accounts">{accounts.map(card)}</div>
+          {held.length
+            ? <div class="accounts">{held.map(card)}</div>
             : (
               <div class="empty">
                 <strong>No accounts yet</strong>
@@ -234,6 +356,146 @@ export function Accounts() {
           </Table>
         </SheetBody>
       </Sheet>
+
+      {borrowing ? (
+        <Editor
+          title={borrowing === 'new' ? 'Record a debt' : `Borrowed more from ${borrowing.account.name}`}
+          /* Borrowing again from the same person asks everything except who:
+             the card it was opened from has already answered that. */
+          fields={borrowing === 'new'
+            ? FIELDS.borrow
+            : FIELDS.borrow.filter((f) => f.key !== 'name')}
+          record={{ date: todayISO() }}
+          state={state}
+          saveLabel="Record it"
+          onInvalid={() => toast('Fill in the required fields')}
+          note={
+            <div class="buy-note">
+              <p class="muted">
+                The money stays in the account it landed in, and the same sum is recorded
+                as owed — so that balance stays right while your total, your savings rate
+                and every goal stop counting it as yours.
+              </p>
+            </div>
+          }
+          onSave={(data) => {
+            borrow({
+              debtId: borrowing === 'new' ? undefined : borrowing.account.id,
+              name: borrowing === 'new' ? String(data['name'] ?? '') : borrowing.account.name,
+              amount: data['amount'] as Cents,
+              date: String(data['date'] ?? ''),
+              intoAccountId: String(data['intoAccountId'] ?? ''),
+              notes: String(data['notes'] ?? '')
+            });
+            followDate(String(data['date'] ?? ''), 'Debt recorded');
+          }}
+          onClose={() => setBorrowing(null)}
+        />
+      ) : null}
+
+      {repaying ? (
+        <Editor
+          title={`Pay back ${repaying.account.name}`}
+          fields={FIELDS.repay}
+          record={{ date: todayISO() }}
+          state={state}
+          saveLabel="Record the payment"
+          onInvalid={() => toast('Fill in the required fields')}
+          onInput={(e) => {
+            const typed = moneyAsTyped(e, 'amount');
+            if (typed !== null) setPaying(typed);
+          }}
+          note={
+            <div class="buy-note">
+              <div class="assume-row">
+                <span>Owed now</span>
+                <span class="num">{money(repaying.owed)}</span>
+              </div>
+              <div class="assume-row">
+                <span>Paying back</span>
+                <span class="num">{`−${money(paying)}`}</span>
+              </div>
+              <div class="assume-row is-total">
+                <strong>Still owed after</strong>
+                <span class="num">{money(owedAfter(repaying, paying))}</span>
+              </div>
+              <p class="muted">
+                {owedAfter(repaying, paying) === 0 && paying > 0
+                  ? 'That settles it.'
+                  : 'Comes out of the account you name, and off what you owe.'}
+              </p>
+            </div>
+          }
+          onSave={(data) => {
+            const amount = data['amount'] as Cents;
+            repay(repaying.account.id, {
+              amount,
+              date: String(data['date'] ?? ''),
+              fromAccountId: String(data['fromAccountId'] ?? ''),
+              notes: String(data['notes'] ?? '')
+            });
+            const left = owedAfter(repaying, amount);
+            toast(left ? `Paid · ${money(left)} still owed` : `${repaying.account.name} settled`);
+          }}
+          onClose={() => setRepaying(null)}
+        />
+      ) : null}
+
+      {reconciling && drift ? (
+        <Editor
+          title={`Reconcile ${reconciling.name}`}
+          fields={FIELDS.reconcile}
+          record={{ date: todayISO(), actual: drift.tracked }}
+          state={state}
+          saveLabel="Correct it"
+          onInvalid={() => toast('Fill in what the account really has')}
+          onInput={(e) => {
+            const typed = moneyAsTyped(e, 'actual');
+            if (typed !== null) setActual(typed);
+          }}
+          note={
+            <div class="buy-note">
+              <div class="assume-row">
+                <span>This app says</span>
+                <span class="num">{money(drift.tracked)}</span>
+              </div>
+              <div class="assume-row">
+                <span>You say it really has</span>
+                <span class="num">{money(drift.actual)}</span>
+              </div>
+              <div class="assume-row is-total">
+                <strong>Difference</strong>
+                <span class={drift.difference < 0 ? 'num is-negative' : 'num'}>
+                  {`${drift.difference > 0 ? '+' : ''}${money(drift.difference)}`}
+                </span>
+              </div>
+              <p class="muted">
+                {drift.difference === 0
+                  ? 'They already agree. Nothing will be recorded.'
+                  : drift.difference < 0
+                    ? `${money(-drift.difference)} will be recorded as spending you never entered — a purchase under "Adjustment", which your usual monthly spending will then include.`
+                    : `${money(drift.difference)} will be recorded as money that arrived and was never entered — income under "Adjustment".`}
+              </p>
+              {drift.difference > 0 ? (
+                <div class="notice warn" style="margin-top:var(--s3)">
+                  Money you borrowed and have not recorded yet is sitting in this balance,
+                  and would be absorbed here as income you never earned. Record it under
+                  <strong> Money you owe</strong> first, then reconcile.
+                </div>
+              ) : null}
+            </div>
+          }
+          onSave={(data) => {
+            const corrected = reconcile(
+              reconciling.id, data['actual'] as Cents, String(data['date'] ?? '')
+            );
+            toast(corrected
+              ? `Corrected by ${money(Math.abs(corrected))}`
+              : 'Already agreed — nothing recorded');
+          }}
+          onClose={() => setReconciling(null)}
+        />
+      ) : null}
 
       {editing ? (
         <Editor

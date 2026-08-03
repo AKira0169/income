@@ -44,7 +44,7 @@ if you move the folder — the shortcut stores absolute paths.
 | **Income** | Set your salary and any other regular payment up **once**; each new month it is entered for you. One-off money — freelance, refunds, gifts — you add as it arrives. |
 | **Bills & Utilities** | Set up each recurring bill once (electricity, water, gas, internet, mobile, rent, council tax, insurance, subscriptions…) and every month fills itself in, pre-filled with the typical amount, ready for you to correct to what you were actually charged. |
 | **Purchases** | One-off spending — groceries, fuel, clothes, electronics, travel. |
-| **Accounts** | Every place money sits: the card the salary lands on, the one you save into, cash, pots with targets. Each card shows where its balance came from — income in, purchases and paid bills out, transfers between them. |
+| **Accounts** | Every place money sits: the card the salary lands on, the one you save into, cash, pots with targets. Each card shows where its balance came from — income in, purchases and paid bills out, transfers between them. Also what you owe, and a **Reconcile** button for when the app and the bank disagree. |
 | **Goals** | What you are saving up for, and the month you will be able to afford each one. Funded in order: the second goal starts once the first is covered. Also answers the other half of the question — how much you will have in any month over the next five years. |
 | **Gold** | Grams held by karat, valued against the live Egyptian price, with what you paid beside what it is worth now. |
 | **Settings** | Currency, number format, savings goal, backup/restore, erase. |
@@ -84,6 +84,62 @@ withdrawal, and taking it off early would make the figure disagree with the bank
 
 Set the account once on a *recurring* income or bill and every month it generates
 carries it too.
+
+### Money you owe
+
+Borrowed money is the one thing that breaks every figure above: it is in your
+account, so the balance is right, but it is not yours, so the total, the savings
+rate and every goal are wrong by exactly that much.
+
+**Accounts → Money you owe → Record a debt.** Say who lent it to you, how much,
+and which account it landed in. That account goes up by the full amount — it
+really did — and the same sum is recorded as owed. What you are worth does not
+move at all, which is the honest answer: you are no richer for having borrowed.
+
+From then on it takes care of itself. The projection starts from what is yours
+rather than what is in the bank, so a goal is never funded out of a loan and the
+Goals tab never promises you a month it cannot deliver. It is not counted as
+saving either, even when the money lands in a savings pot.
+
+**Repay** takes the money out of whichever account you paid from and off what you
+owe, in one step. Each card shows how deep it went, how much is behind you and
+what is left, and reads *Settled* the moment it reaches zero. **Borrow more**
+adds to the same debt rather than opening a second one.
+
+A debt is an ordinary account, held with a negative balance — you can rename it,
+add notes, and see every borrowing and repayment in the movements list below,
+where they can be edited or deleted like anything else. Deleting the debt removes
+its movements with it, and your balances go back up by what you still owed.
+
+### When the app and the bank disagree
+
+Small spending nobody enters — a coffee, a tip, a top-up, twenty card taps —
+adds up, and after a few months the balance on the card is not the balance in the
+bank. There is no entry that fixes that, which is where most trackers quietly
+stop being true.
+
+**Reconcile**, on any account card, is that entry. Read the real balance off your
+bank and type it in. The dialog shows what the app says, what you say, and the
+difference, before anything is written; saving records the one row that closes
+the gap:
+
+- **Money missing** — spending that was never entered. Filed as a purchase under
+  *Adjustment*, which means your usual monthly spending starts including it. That
+  is deliberate: if the app keeps finding you a few hundred short, a few hundred a
+  month is what you actually spend, and a forecast built on the entered figure
+  alone would keep promising money that never arrives.
+- **Money over** — something that arrived and was never recorded. Filed as income
+  under *Adjustment*.
+- **Already agreed** — nothing is written at all.
+
+It is a real record, not a hidden fudge on the account: it sits in its month's
+history, totals under its own category, and can be edited or deleted if the
+receipt it stood in for turns up later.
+
+> **Record borrowed money first.** A loan you have not entered is already sitting
+> in the bank's figure, so reconciling before recording it would absorb the whole
+> sum as income you never earned. The dialog says so whenever the difference runs
+> your way.
 
 ### Goals and when you can afford them
 
@@ -389,7 +445,10 @@ That runs everything: the typecheck, the Node suites, and the browser suite.
   that a bill derives its month and its paid status from its own dates, that a
   settings write replaces the settings object, that saves batch, and that every
   write returns a new state object rather than editing one. It also covers the
-  six date formats and the two-digit-year rule.
+  six date formats and the two-digit-year rule, and pins the two invariants the
+  newer features rest on: that borrowing leaves what you are worth exactly where
+  it was — so a loan can never fund a goal — and that reconciling makes an
+  account agree with the figure it was given, or writes nothing at all.
 - `test/roundtrip.ts` and `test/export.ts` write real workbooks and read them
   back with SheetJS as an oracle, confirming the bytes are a valid `.xlsx` —
   including non-ASCII text, emoji, XML metacharacters, negative amounts and
@@ -415,6 +474,10 @@ Two of its checks are there for regressions that are otherwise invisible:
   `defaultValue` trap above. It types into an open form, makes a write from
   outside it, and checks the text is still there — and separately checks the form
   really did redraw, so it cannot pass by nothing having happened.
+- **Borrowing and paying back through the real dialogs** drives the debt form the
+  way a person would and checks the pair of figures that matter: the account it
+  landed in goes up by the full sum while what you are worth does not move, and
+  both return to where they started once the debt is settled.
 
 Open `file://` rather than a local server for this: they are different origins
 with different databases, and the app is only ever opened the first way.

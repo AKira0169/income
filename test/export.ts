@@ -344,16 +344,27 @@ check('july savings rate cached', Math.round(wb.Sheets['Monthly Breakdown'].J3.v
   Math.round((70000 / 365050) * 10000) / 10000);
 // Every formula must ship a cached <v>, else the row reads as 0/blank before
 // Excel recalculates.
-// Layout: header(1), 2026-06(2), 2026-07(3), blank(4), Total(5), Average(6).
+/* The layout is found rather than written down. activePeriods() always includes
+   the month the machine is in, so the sheet grows a row the day the real
+   calendar passes the fixture's last month, and hard-coded addresses start
+   failing on their own — which is exactly what they did. The months carry no
+   entries beyond the fixture's, so the totals are unchanged by them; only the
+   divisor of the average moves, so that is read off the sheet too. */
 const mb = wb.Sheets['Monthly Breakdown'];
-check('total row income cached (not 0)', mb.B5.v, (320000 + 320000 + 45050) / 100);
-check('total row net saved cached', mb.I5.v, (50000 + 70000) / 100);
-check('total row savings rate cached', Math.round(mb.J5.v * 10000) / 10000,
+const totalRow = monthly.findIndex((r) => r[0] === 'Total') + 1;
+const averageRow = monthly.findIndex((r) => r[0] === 'Monthly average') + 1;
+const monthRows = totalRow - 3;   // header, then the months, then one blank
+check('the total and average rows follow the months',
+  [totalRow, averageRow], [monthRows + 3, monthRows + 4]);
+check('total row income cached (not 0)', mb[`B${totalRow}`].v, (320000 + 320000 + 45050) / 100);
+check('total row net saved cached', mb[`I${totalRow}`].v, (50000 + 70000) / 100);
+check('total row savings rate cached', Math.round(mb[`J${totalRow}`].v * 10000) / 10000,
   Math.round((120000 / 685050) * 10000) / 10000);
-check('average row cached', mb.B6.v, ((320000 + 320000 + 45050) / 2) / 100);
-check('average row is a formula', mb.B6.f, 'AVERAGE(B2:B3)');
+check('average row cached', mb[`B${averageRow}`].v,
+  ((320000 + 320000 + 45050) / monthRows) / 100);
+check('average row is a formula', mb[`B${averageRow}`].f, `AVERAGE(B2:B${monthRows + 1})`);
 ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].forEach((col) => {
-  [5, 6].forEach((row) => {
+  [totalRow, averageRow].forEach((row) => {
     const cell = mb[col + row];
     if (cell && cell.f && typeof cell.v !== 'number') {
       failures++;

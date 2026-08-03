@@ -124,6 +124,38 @@ export const FIELDS = {
     },
     { key: 'method', label: 'Paid with', type: 'select', options: PAYMENT_METHODS, def: 'Card' }
   ],
+  /* Borrowing. The account is required for the reason buying a goal requires
+     one: money that landed in no account moves no balance, and the whole point
+     here is that a card went up by exactly what you now owe. */
+  borrow: [
+    { key: 'date', label: 'Borrowed on', type: 'date', required: true, def: todayISO },
+    { key: 'name', label: 'Who you owe', type: 'text', placeholder: 'e.g. Brother-in-law', required: true },
+    { key: 'amount', label: 'How much you took', type: 'money', required: true },
+    {
+      key: 'intoAccountId', label: 'It landed in', type: 'account', required: true,
+      def: (s: AppState) => lastAccountFor(s, 'income')
+    },
+    { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional — what it was for', wide: true }
+  ],
+  /* Paying one back. No "who", because the debt being paid is already known —
+     the dialog is opened from its own card. */
+  repay: [
+    { key: 'date', label: 'Paid on', type: 'date', required: true, def: todayISO },
+    { key: 'amount', label: 'How much you paid back', type: 'money', required: true },
+    {
+      key: 'fromAccountId', label: 'Paid from', type: 'account', required: true,
+      def: (s: AppState) => lastAccountFor(s, 'purchases')
+    },
+    { key: 'notes', label: 'Notes', type: 'text', placeholder: 'Optional', wide: true }
+  ],
+  /* Making an account agree with the real one. Two fields and nothing else:
+     the amount to correct by is the app's job to work out, not yours, and
+     offering it as a field would invite a number that leaves the two still
+     apart. */
+  reconcile: [
+    { key: 'date', label: 'Checked on', type: 'date', required: true, def: todayISO },
+    { key: 'actual', label: 'What it really has', type: 'money', required: true }
+  ],
   gold: [
     { key: 'date', label: 'Date', type: 'date', required: true, def: todayISO },
     {
