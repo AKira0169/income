@@ -6,7 +6,7 @@
 import { ZodError } from 'zod';
 import type { ErrorBody } from '../src/wire.ts';
 
-export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500;
+export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500 | 503;
 
 export class HttpError extends Error {
   readonly status: ApiStatus;
@@ -42,6 +42,10 @@ export function toErrorResponse(err: unknown): { status: ApiStatus; body: ErrorB
   }
   if (pgClass === '22') {
     return reply(400, 'invalid_value', 'A value in this request is out of range or the wrong kind.');
+  }
+  // AbortSignal.timeout() on the call to Kratos (kratos.ts): not our failure, and not a lasting one.
+  if ((err as { name?: unknown } | null)?.name === 'TimeoutError') {
+    return reply(503, 'unavailable', 'The sign-in service is not answering. Try again in a moment.');
   }
   return reply(500, 'internal', 'Something went wrong on the server.');
 }

@@ -82,6 +82,8 @@ check('a value Postgres cannot store is 400',
   toErrorResponse(Object.assign(new Error('out of range'), { code: '22003' })).body.error.code, 'invalid_value');
 check('a record that breaks a rule of the table is 400',
   toErrorResponse(Object.assign(new Error('null value'), { code: '23502' })).body.error.code, 'invalid_record');
+check('a sign-in service that does not answer in time is 503, not 500',
+  toErrorResponse(new DOMException('The operation timed out.', 'TimeoutError')).status, 503);
 check('bad JSON is 400', toErrorResponse(new SyntaxError('Unexpected token')).body.error.code, 'invalid_json');
 const internal = toErrorResponse(new Error('connection string with a password in it'));
 check('anything else is a 500 that says nothing about internals',

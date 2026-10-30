@@ -99,10 +99,20 @@ async function freshTotp(secret, used) {
 
 const browser = await puppeteer.launch({ executablePath, headless: true, acceptInsecureCerts: true });
 
+/** The page, for the failure report below. */
+let current = null;
+
 try {
   const tab = await browser.newPage();
+  current = tab;
   const errors = [];
   tab.on('pageerror', (e) => errors.push(String(e)));
+  /* Refusals are logged as they happen, so a step that times out says why: a
+     429 is Caddy's rate limit, a 5xx the api or Kratos. Both are invisible in
+     the api's own log when Caddy is the one answering. */
+  tab.on('response', (r) => {
+    if (r.status() === 429 || r.status() >= 500) console.log(`  ! ${r.status()} ${r.request().method()} ${r.url()}`);
+  });
   /* The sign-in protocol answers 401 (no session yet), 403 (second factor
      owed) and 422 (go elsewhere) as a matter of course, and Chrome logs every
      non-2xx response as a console error. Those are the protocol working, not
@@ -804,6 +814,14 @@ try {
 
   console.log('\nconsole:');
   check('no uncaught errors or console errors', errors, []);
+} catch (err) {
+  /* A timed-out wait says only which selector never appeared. Where the page
+     was, and what it was showing, is usually the answer. */
+  if (current) {
+    const text = await current.evaluate(() => document.body?.innerText ?? '').catch(() => '(page gone)');
+    console.log(`\n  stopped at ${current.url()}\n  the page said: ${JSON.stringify(text.slice(0, 600))}`);
+  }
+  throw err;
 } finally {
   await browser.close();
 }
