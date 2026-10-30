@@ -22,6 +22,7 @@ title('create, read, update, delete');
 const created = await a.post<MutationResponse<Purchase>>('/api/purchases', tea);
 check('POST answers with the saved record', [created.status, created.body.result.item, created.body.result.amount], [200, 'Tea', 250]);
 check('and the first version', created.body.version, 1);
+check('made on top of version 0', created.body.baseVersion, 0);
 check('and the change to apply', created.body.changes.purchases?.upserts.map((r) => r.id), ['pur_1']);
 const fresh = await a.post<MutationResponse<Purchase>>('/api/purchases', { item: 'Bread', amount: 100 });
 check('a record without an id gets one with its collection\'s prefix', fresh.body.result.id.startsWith('pur_'), true);

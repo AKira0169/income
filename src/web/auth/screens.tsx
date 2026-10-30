@@ -12,17 +12,18 @@ import { go, navigate, search } from '../state/route.ts';
 import type { AuthRoute } from '../state/route.ts';
 import { Toast, toast } from '../ui/components/Toast.tsx';
 import { FlowForm } from './FlowForm.tsx';
-import { createFlow, errorMessage, getFlow } from './kratos.ts';
+import { createFlow, destination, errorMessage, getFlow } from './kratos.ts';
 import type { Flow, FlowKind, Outcome } from './kratos.ts';
 import { checkSession } from './session.ts';
 
 const param = (name: string): string => new URLSearchParams(search.peek()).get(name) ?? '';
 
-/** In-app addresses are routed; Kratos's own (/auth/…) need a real navigation. */
+/** In-app addresses are routed, Kratos's own (/auth/…) are loaded, anything else goes home. */
 function follow(to: string): void {
-  const url = new URL(to, location.origin);
-  if (url.origin === location.origin && !url.pathname.startsWith('/auth/')) navigate(url.pathname + url.search);
-  else location.assign(url.href);
+  const where = destination(to, location.origin);
+  if (where.kind === 'route') navigate(where.path);
+  else if (where.kind === 'load') location.assign(where.href);
+  else go({});
 }
 
 function useFlow(kind: FlowKind, params: Record<string, string> = {}) {

@@ -53,6 +53,14 @@ const id = me.headers.get('x-request-id') ?? '';
 check('every response carries a request id', /^[0-9a-f]{16}$/.test(id), true);
 check('and the log line names it', logs.some((l) => l['requestId'] === id && l['status'] === 200), true);
 
+title('request size');
+const huge = await a.raw<ErrorBody>('POST', '/api/purchases', JSON.stringify({ item: 'x'.repeat(300 * 1024) }));
+check('a body over 256 KB is refused before it is read', [huge.status, huge.body.error.code], [413, 'too_large']);
+const longText = await a.post<ErrorBody>('/api/purchases', { item: 'x'.repeat(20_001) });
+check('a text field over 20 000 characters is refused', [longText.status, longText.body.error.code], [400, 'invalid_body']);
+const overflow = await a.post<ErrorBody>('/api/purchases', { item: 'x', amount: 1e30 });
+check('a number too big for its column is a 400, not a 500', [overflow.status, overflow.body.error.code], [400, 'invalid_value']);
+
 title('rate limit');
 const tight = createApp({ sql: db.sql, whoami: stubWhoami(), appOrigin: ORIGIN, rateLimit: { capacity: 2, perSecond: 0 }, log: () => {} });
 const t = as(tight, USER_A);
@@ -70,6 +78,10 @@ check('a validation failure is 400 invalid_body', [toErrorResponse(zod).status, 
 check('an HttpError keeps its status and code', toErrorResponse(new HttpError(404, 'not_found', 'No such record.')),
   { status: 404, body: { error: { code: 'not_found', message: 'No such record.' } } });
 check('a duplicate generated row is 409', toErrorResponse(Object.assign(new Error('dup'), { code: '23505' })).status, 409);
+check('a value Postgres cannot store is 400',
+  toErrorResponse(Object.assign(new Error('out of range'), { code: '22003' })).body.error.code, 'invalid_value');
+check('a record that breaks a rule of the table is 400',
+  toErrorResponse(Object.assign(new Error('null value'), { code: '23502' })).body.error.code, 'invalid_record');
 check('bad JSON is 400', toErrorResponse(new SyntaxError('Unexpected token')).body.error.code, 'invalid_json');
 const internal = toErrorResponse(new Error('connection string with a password in it'));
 check('anything else is a 500 that says nothing about internals',

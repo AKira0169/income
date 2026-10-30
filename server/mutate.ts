@@ -28,7 +28,7 @@ export function mutate<R>(
   sql: Sql, userId: string, run: (state: AppState) => Mutation<R>
 ): Promise<MutationResponse<R>> {
   return withUser(sql, userId, async (tx) => {
-    const { state: before } = await loadState(userId, tx);
+    const { state: before, version: baseVersion } = await loadState(userId, tx);
     let out: Mutation<R>;
     try {
       out = run(before);
@@ -38,7 +38,7 @@ export function mutate<R>(
     }
     const diff = diffState(before, out.state);
     const version = await writeDiff(userId, tx, diff, baseCurrencyOf(out.state.settings));
-    const response: MutationResponse<R> = { version, changes: diff.changes, result: out.result };
+    const response: MutationResponse<R> = { baseVersion, version, changes: diff.changes, result: out.result };
     // Sent as stored, base currency included, so the client matches the next read.
     if (diff.settings) {
       response.settings = { ...diff.settings, baseCurrency: baseCurrencyOf(diff.settings) } as Settings;

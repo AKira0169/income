@@ -1,4 +1,8 @@
 # Development: Caddy's own local CA instead of Let's Encrypt.
+{
+	order rate_limit before basic_auth
+}
+
 {$APP_DOMAIN} {
 	tls internal
 	import /etc/caddy/routes.caddy

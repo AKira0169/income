@@ -6,7 +6,7 @@
 import { ZodError } from 'zod';
 import type { ErrorBody } from '../src/wire.ts';
 
-export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 429 | 500;
+export type ApiStatus = 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500;
 
 export class HttpError extends Error {
   readonly status: ApiStatus;
@@ -28,9 +28,20 @@ export function toErrorResponse(err: unknown): { status: ApiStatus; body: ErrorB
     return reply(400, 'invalid_body', `The request was not understood (${detail}).`);
   }
   if (err instanceof SyntaxError) return reply(400, 'invalid_json', 'The request body is not valid JSON.');
-  if ((err as { code?: unknown } | null)?.code === '23505') {
+  /* Postgres error classes: 23 is a record breaking a rule of its table, 22 a
+     value the column cannot hold (a number too big for BIGINT). Both are the
+     request's fault, and neither should read as the server falling over. */
+  const pgCode = (err as { code?: unknown } | null)?.code;
+  const pgClass = typeof pgCode === 'string' ? pgCode.slice(0, 2) : '';
+  if (pgCode === '23505') {
     return reply(409, 'conflict',
       'That would make a second entry for the same recurring item in the same month.');
+  }
+  if (pgClass === '23') {
+    return reply(400, 'invalid_record', 'A record in this request is incomplete or contradicts another.');
+  }
+  if (pgClass === '22') {
+    return reply(400, 'invalid_value', 'A value in this request is out of range or the wrong kind.');
   }
   return reply(500, 'internal', 'Something went wrong on the server.');
 }

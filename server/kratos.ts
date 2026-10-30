@@ -21,7 +21,10 @@ interface WhoamiBody {
 export function kratosWhoami(publicUrl: string, fetchImpl: typeof fetch = fetch) {
   const url = new URL('/sessions/whoami', publicUrl).toString();
   return async (cookieHeader: string): Promise<Identity | null> => {
-    const res = await fetchImpl(url, { headers: { cookie: cookieHeader, accept: 'application/json' } });
+    // A Kratos that hangs must not hang every request behind it.
+    const res = await fetchImpl(url, {
+      headers: { cookie: cookieHeader, accept: 'application/json' }, signal: AbortSignal.timeout(3000)
+    });
     if (res.status !== 200) return null;
     const body = await res.json() as WhoamiBody;
     if (!body.active || !body.identity) return null;

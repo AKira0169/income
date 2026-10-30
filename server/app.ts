@@ -8,6 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { MeResponse, StateResponse } from '../src/wire.ts';
 import { withUser } from './db.ts';
 import type { Sql } from './db.ts';
@@ -53,6 +54,15 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.get('/healthz', (c) => c.text('ok'));
 
+  /* Every body is read whole into memory, and sign-up is open: without a cap,
+     one request could take the only api instance down for everyone. A write is
+     a record or two; the backup import sets its own, larger limit. */
+  const smallBody = bodyLimit({
+    maxSize: 256 * 1024,
+    onError: () => { throw new HttpError(413, 'too_large', 'That request is too large.'); }
+  });
+  app.use('/api/*', (c, next) => (c.req.path === '/api/backup/import' ? next() : smallBody(c, next)));
+
   app.use('/api/*', async (c, next) => {
     const identity = await deps.whoami(c.req.header('cookie'));
     if (!identity) throw new HttpError(401, 'unauthenticated', 'Sign in to continue.');
@@ -88,7 +98,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.get('/api/state', async (c) => {
     const userId = c.get('userId');
-    const loaded = await withUser(deps.sql, userId, (tx) => loadState(userId, tx));
+    const loaded = await withUser(deps.sql, userId, (tx) => loadState(userId, tx), { snapshot: true });
     const body: StateResponse = { version: loaded.version, state: loaded.state };
     return c.json(body);
   });

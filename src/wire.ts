@@ -34,7 +34,9 @@ export interface StateDiff {
 }
 
 export interface MutationResponse<R = unknown> {
-  /** users.state_version after this write; unchanged when nothing was written. */
+  /** users.state_version this write was made on top of. */
+  baseVersion: number;
+  /** users.state_version after this write; equal to baseVersion when nothing was written. */
   version: number;
   changes: Changes;
   settings?: Settings;

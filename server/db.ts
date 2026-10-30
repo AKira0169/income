@@ -33,13 +33,20 @@ export function connect(url: string, options: { max?: number } = {}): Sql {
   });
 }
 
+/* A snapshot read sees one moment: loading a whole state is a dozen
+   statements, and under the default READ COMMITTED a write committed between
+   two of them could return an account without the movement that came with it. */
+const SNAPSHOT = 'isolation level repeatable read read only';
+
 export async function withUser<T>(
-  sql: Sql, userId: string, work: (tx: Tx) => Promise<T>, options: { lock?: boolean } = {}
+  sql: Sql, userId: string, work: (tx: Tx) => Promise<T>,
+  options: { lock?: boolean; snapshot?: boolean } = {}
 ): Promise<T> {
-  const result = await sql.begin(async (tx) => {
+  const run = async (tx: Tx): Promise<T> => {
     await tx`select set_config('app.user_id', ${userId}, true)`;
     if (options.lock) await tx`select pg_advisory_xact_lock(hashtext(${userId}::text))`;
     return work(tx);
-  });
+  };
+  const result = options.snapshot ? await sql.begin(SNAPSHOT, run) : await sql.begin(run);
   return result as T;
 }

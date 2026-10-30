@@ -168,3 +168,18 @@ export function bodyFromForm(
   }
   return out;
 }
+
+export type Destination = { kind: 'route'; path: string } | { kind: 'load'; href: string } | { kind: 'home' };
+
+/* Where a redirect from a flow (or a return_to) may take the page. Kratos is
+   configured to send people only back here, but this is the one place that
+   decides, so it does not trust that: our own pages are routed in place, our
+   own /auth addresses are loaded, and anything else — another site, a
+   javascript: or data: URL — goes nowhere but the app. */
+export function destination(to: string, origin: string): Destination {
+  let url: URL;
+  try { url = new URL(to, origin); } catch { return { kind: 'home' }; }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.origin !== origin) return { kind: 'home' };
+  if (url.pathname.startsWith('/auth/')) return { kind: 'load', href: url.href };
+  return { kind: 'route', path: url.pathname + url.search };
+}

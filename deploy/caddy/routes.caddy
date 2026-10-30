@@ -1,6 +1,48 @@
 # Shared by Caddyfile (production) and Caddyfile.dev.
 encode zstd gzip
 
+# Nothing loads from anywhere but here: no third-party script, font or frame.
+# Inline style attributes are used throughout the screens, hence
+# 'unsafe-inline' for styles only; the TOTP QR code arrives as a data: image.
+header {
+	Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	X-Frame-Options DENY
+	X-Content-Type-Options nosniff
+	Referrer-Policy same-origin
+	-Server
+}
+
+# Kratos does not throttle sign-in, and recovery and verification send mail to
+# whatever address is typed. Each IP gets 20 form submissions a minute — far
+# more than a person signing in needs. The api gets a generous per-IP ceiling
+# too, in front of its own per-user one, so a flood of requests with made-up
+# session cookies never reaches Kratos.
+rate_limit {
+	zone auth_submit {
+		match {
+			method POST
+			path /auth/self-service/*
+		}
+		key {remote_host}
+		events 20
+		window 1m
+	}
+	zone api {
+		match {
+			path /api/*
+		}
+		key {remote_host}
+		events 600
+		window 1m
+	}
+}
+
+# Bodies are capped here as well as in the api; the largest legitimate one is
+# a backup import.
+request_body {
+	max_size 12MB
+}
+
 # Kratos's public port answers /admin/* with a redirect to the admin port. It
 # cannot be followed from outside, but it still names an internal host, so the
 # path is closed here.

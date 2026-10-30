@@ -69,14 +69,18 @@ export async function refresh(): Promise<void> {
   version = loaded.version;
 }
 
+/* A write's changes are only the difference from the version it was made on
+   top of. If that is the version on screen, they bring the screen up to date;
+   if not — another device wrote in between, even when this write itself
+   changed nothing — the whole state is fetched rather than guessed at. */
 async function adopt(res: MutationResponse<unknown>): Promise<void> {
-  if (res.version <= version) return;               // nothing written, or already seen
-  if (res.version === version + 1) {
+  if (res.version === version) return;               // nothing written, nothing missed
+  if (res.baseVersion === version) {
     app.value = applyChanges(app.peek(), res);
     version = res.version;
     return;
   }
-  await refresh();                                    // another device wrote in between
+  await refresh();
 }
 
 let queue: Promise<unknown> = Promise.resolve();

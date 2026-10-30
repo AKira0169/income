@@ -1,4 +1,13 @@
 # Production: automatic HTTPS from Let's Encrypt for $APP_DOMAIN.
+{
+	# rate_limit comes from the caddy-ratelimit plugin (see Dockerfile) and has
+	# no place in Caddy's standard directive order until it is given one.
+	order rate_limit before basic_auth
+}
+
 {$APP_DOMAIN} {
+	# HTTPS only, from now on. Production only: pinned on localhost it would
+	# outlive the dev stack and break every other local server.
+	header Strict-Transport-Security "max-age=31536000"
 	import /etc/caddy/routes.caddy
 }

@@ -32,7 +32,7 @@ const tea = { id: 'pur_1', goalId: null, date: '2026-07-02', item: 'Tea', catego
 title('boot');
 route = (_method, path) => path === '/api/state'
   ? { status: 200, body: { version: 4, state: serverState } }
-  : { status: 200, body: { version: 4, changes: {}, result: none } };
+  : { status: 200, body: { baseVersion: 4, version: 4, changes: {}, result: none } };
 const outcome = await boot();
 check('loads the state, then asks for the catch-up', calls, ['GET /api/state', 'POST /api/recurring/catch-up']);
 check('and reports what the catch-up added', outcome, { added: none });
@@ -42,7 +42,7 @@ check('the version is the server\'s', currentVersion(), 4);
 check('booting twice does not load twice', [await boot(), calls.length], [{ added: none }, 2]);
 
 title('a write');
-route = () => ({ status: 200, body: { version: 5, changes: { purchases: { upserts: [tea], deletes: [] } }, result: tea } });
+route = () => ({ status: 200, body: { baseVersion: 4, version: 5, changes: { purchases: { upserts: [tea], deletes: [] } }, result: tea } });
 const saved = await upsert('purchases', { item: 'Tea', amount: 250 });
 check('returns the saved record, as it always has', saved.item, 'Tea');
 check('applies the change to the signal', app.peek().purchases.map((p) => p.id), ['pur_1']);
@@ -54,17 +54,27 @@ calls.length = 0;
 const both = { ...serverState, purchases: [tea, { ...tea, id: 'pur_2' }] };
 route = (_method, path) => path === '/api/state'
   ? { status: 200, body: { version: 7, state: both } }
-  : { status: 200, body: { version: 7, changes: { purchases: { upserts: [], deletes: [] } }, result: null } };
+  : { status: 200, body: { baseVersion: 6, version: 7, changes: { purchases: { upserts: [], deletes: [] } }, result: null } };
 await remove('purchases', 'pur_9');
-check('a version two ahead means the state is fetched again', calls, ['DELETE /api/purchases/pur_9', 'GET /api/state']);
+check('a write made on top of a version we never saw means the state is fetched again', calls, ['DELETE /api/purchases/pur_9', 'GET /api/state']);
 check('and the other device\'s record appears', app.peek().purchases.length, 2);
 check('at the server\'s version', currentVersion(), 7);
 
 title('a write that changed nothing');
 calls.length = 0;
-route = () => ({ status: 200, body: { version: 7, changes: {}, result: 0 } });
+route = () => ({ status: 200, body: { baseVersion: 7, version: 7, changes: {}, result: 0 } });
 check('answers with its result', await reconcile('acc_1', 100, '2026-07-31'), 0);
 check('and fetches nothing more', calls, ['POST /api/accounts/acc_1/reconcile']);
+
+title('a write that changed nothing, after another device wrote');
+calls.length = 0;
+const theirs = { ...both, purchases: [...both.purchases, { ...tea, id: 'pur_3' }] };
+route = (_method, path) => path === '/api/state'
+  ? { status: 200, body: { version: 8, state: theirs } }
+  : { status: 200, body: { baseVersion: 8, version: 8, changes: {}, result: 0 } };
+await reconcile('acc_1', 100, '2026-07-31');
+check('is still news: the other device\'s write is fetched', calls, ['POST /api/accounts/acc_1/reconcile', 'GET /api/state']);
+check('and appears', [app.peek().purchases.length, currentVersion()], [3, 8]);
 
 title('failures');
 route = () => ({ status: 400, body: { error: { code: 'domain', message: 'This file is not an Income Tracker backup.' } } });
@@ -73,13 +83,13 @@ try { await upsert('purchases', { item: 'x' }); } catch (err) { failed = err; }
 check('a refused write is an ApiError with the server\'s message',
   [failed instanceof ApiError, (failed as ApiError).status, (failed as Error).message],
   [true, 400, 'This file is not an Income Tracker backup.']);
-check('and the state is untouched', app.peek().purchases.length, 2);
+check('and the state is untouched', app.peek().purchases.length, 3);
 route = () => { throw new TypeError('fetch failed'); };
 failed = null;
 try { await upsert('purchases', { item: 'x' }); } catch (err) { failed = err; }
 check('no server at all is code "offline"', (failed as ApiError).code, 'offline');
 check('and the page knows it is offline', reachable.peek(), false);
-route = () => ({ status: 200, body: { version: 7, changes: {}, result: tea } });
+route = () => ({ status: 200, body: { baseVersion: 8, version: 8, changes: {}, result: tea } });
 await upsert('purchases', tea);
 check('the next answer brings it back', reachable.peek(), true);
 let signedOut = 0;
@@ -91,17 +101,17 @@ check('a 401 hands over to the sign-in screen', signedOut, 1);
 title('writes go one at a time');
 let active = 0;
 let most = 0;
-let next = 7;
+let next = 8;
 route = async () => {
   active++; most = Math.max(most, active);
   await new Promise((r) => setTimeout(r, 20));
   active--;
   next++;
-  return { status: 200, body: { version: next, changes: {}, result: tea } };
+  return { status: 200, body: { baseVersion: next - 1, version: next, changes: {}, result: tea } };
 };
 await Promise.all([upsert('purchases', tea), upsert('purchases', tea), upsert('purchases', tea)]);
 check('never more than one in flight', most, 1);
-check('and every version was applied in order', currentVersion(), 10);
+check('and every version was applied in order', currentVersion(), 11);
 
 title('signing out');
 resetApp();

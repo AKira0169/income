@@ -23,7 +23,9 @@ export function parseCollection(name: string): UserCollection {
 }
 
 const scalar = (kind: ColumnKind) => {
-  if (kind === 'text') return z.union([z.string(), z.number()]).nullable().optional();
+  // A note is a few lines; this is far beyond any real one and far below a
+  // body that could hurt.
+  if (kind === 'text') return z.union([z.string().max(20_000), z.number()]).nullable().optional();
   if (kind === 'bool') return z.union([z.boolean(), z.number()]).nullable().optional();
   return z.union([z.number(), z.string()]).nullable().optional();
 };

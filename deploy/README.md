@@ -7,7 +7,7 @@ certificate from Let's Encrypt by itself.
 
 | Service | What it is |
 | --- | --- |
-| `caddy` | The only public port (80/443). Serves the web app, proxies `/auth/*` to Kratos and `/api/*` to the api. |
+| `caddy` | The only public port (80/443). Serves the web app, proxies `/auth/*` to Kratos and `/api/*` to the api. Built with the `caddy-ratelimit` plugin: 20 sign-in form submissions a minute per IP, 600 api requests. Sends HSTS, a strict CSP and no-framing headers. |
 | `api` | Node 26, Hono. Applies database migrations on start, then serves. Fetches the gold price once a day. |
 | `kratos` | Ory Kratos v1.3.1: accounts, passwords, 2FA, email verification and recovery. Its admin API is never exposed. |
 | `kratos-migrate` | Runs Kratos's own migrations once, then exits. |

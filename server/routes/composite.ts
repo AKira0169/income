@@ -94,7 +94,7 @@ export function compositeRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
 
   app.get('/api/backup', async (c) => {
     const userId = c.get('userId');
-    const { state } = await withUser(deps.sql, userId, (tx) => loadState(userId, tx));
+    const { state } = await withUser(deps.sql, userId, (tx) => loadState(userId, tx), { snapshot: true });
     return c.body(Backup.exportJSON(state), 200, {
       'content-type': 'application/json; charset=utf-8',
       'content-disposition': `attachment; filename="income-tracker-backup-${todayISO()}.json"`
@@ -106,7 +106,7 @@ export function compositeRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
   app.post('/api/backup/import',
     bodyLimit({
       maxSize: IMPORT_LIMIT,
-      onError: () => { throw new HttpError(400, 'too_large', 'That file is too large to import.'); }
+      onError: () => { throw new HttpError(413, 'too_large', 'That file is too large to import.'); }
     }),
     async (c) => {
       const text = await c.req.text();

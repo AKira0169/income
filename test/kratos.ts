@@ -4,7 +4,7 @@
    Run:  node test/kratos.ts */
 
 import {
-  bodyFromForm, createFlow, logout, outcomeOf, submitFlow, whoami
+  bodyFromForm, createFlow, destination, logout, outcomeOf, submitFlow, whoami
 } from '../src/web/auth/kratos.ts';
 import type { Flow, UiNode } from '../src/web/auth/kratos.ts';
 import { check, finish, title } from './support/check.ts';
@@ -63,5 +63,16 @@ answer = { status: 200, body: { logout_token: 'lt', logout_url: 'x' } };
 await logout();
 check('logging out fetches a token, then spends it',
   sent.map((s) => s.url), ['/auth/self-service/logout/browser', '/auth/self-service/logout?token=lt']);
+
+title('where a redirect may go');
+const ORIGIN = 'https://app.test';
+check('an app path is routed in place', destination('/bills/2026-07?x=1', ORIGIN), { kind: 'route', path: '/bills/2026-07?x=1' });
+check('a full same-origin URL too', destination('https://app.test/settings/security?flow=f', ORIGIN), { kind: 'route', path: '/settings/security?flow=f' });
+check('a Kratos address is a real page load', destination('https://app.test/auth/self-service/login/browser?aal=aal2', ORIGIN),
+  { kind: 'load', href: 'https://app.test/auth/self-service/login/browser?aal=aal2' });
+check('javascript: is never followed', destination('javascript:alert(1)', ORIGIN), { kind: 'home' });
+check('nor data:', destination('data:text/html,hi', ORIGIN), { kind: 'home' });
+check('nor another site', destination('https://evil.test/login', ORIGIN), { kind: 'home' });
+check('nor a protocol-relative one', destination('//evil.test/x', ORIGIN), { kind: 'home' });
 
 finish();
