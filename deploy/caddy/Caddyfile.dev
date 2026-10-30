@@ -1,0 +1,5 @@
+# Development: Caddy's own local CA instead of Let's Encrypt.
+{$APP_DOMAIN} {
+	tls internal
+	import /etc/caddy/routes.caddy
+}

@@ -1,0 +1,119 @@
+# The whole app on one host. Caddy is the only thing listening publicly; it
+# serves the web build and proxies /auth/* to Kratos (prefix stripped) and
+# /api/* to the api, so everything is one origin and the Kratos session cookie
+# is first-party. Kratos's admin port (4434) is never routed.
+#
+#   docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
+name: income
+
+x-kratos-env: &kratos-env
+  DSN: postgres://kratos:${KRATOS_DB_PASSWORD:?set KRATOS_DB_PASSWORD in deploy/.env}@postgres:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
+      KRATOS_DB_PASSWORD: ${KRATOS_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  kratos-migrate:
+    image: oryd/kratos:v1.3.1
+    command: migrate sql -e --yes
+    environment: *kratos-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  kratos:
+    image: oryd/kratos:v1.3.1
+    command: serve -c /etc/config/kratos/kratos.yml --watch-courier
+    restart: unless-stopped
+    environment:
+      <<: *kratos-env
+      # Everything that depends on the domain or is secret is set here, over
+      # the localhost defaults in kratos.yml. Arrays take an index suffix.
+      SERVE_PUBLIC_BASE_URL: https://${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}/auth/
+      SELFSERVICE_DEFAULT_BROWSER_RETURN_URL: https://${APP_DOMAIN}/
+      SELFSERVICE_ALLOWED_RETURN_URLS_0: https://${APP_DOMAIN}/
+      SELFSERVICE_FLOWS_ERROR_UI_URL: https://${APP_DOMAIN}/error
+      SELFSERVICE_FLOWS_LOGIN_UI_URL: https://${APP_DOMAIN}/login
+      SELFSERVICE_FLOWS_REGISTRATION_UI_URL: https://${APP_DOMAIN}/registration
+      SELFSERVICE_FLOWS_RECOVERY_UI_URL: https://${APP_DOMAIN}/recovery
+      SELFSERVICE_FLOWS_VERIFICATION_UI_URL: https://${APP_DOMAIN}/verification
+      SELFSERVICE_FLOWS_VERIFICATION_AFTER_DEFAULT_BROWSER_RETURN_URL: https://${APP_DOMAIN}/
+      SELFSERVICE_FLOWS_SETTINGS_UI_URL: https://${APP_DOMAIN}/settings/security
+      SELFSERVICE_FLOWS_LOGOUT_AFTER_DEFAULT_BROWSER_RETURN_URL: https://${APP_DOMAIN}/login
+      SECRETS_COOKIE_0: ${KRATOS_COOKIE_SECRET:?set KRATOS_COOKIE_SECRET in deploy/.env}
+      SECRETS_CIPHER_0: ${KRATOS_CIPHER_SECRET:?set KRATOS_CIPHER_SECRET (exactly 32 characters) in deploy/.env}
+      COURIER_SMTP_CONNECTION_URI: ${SMTP_URI:?set SMTP_URI in deploy/.env}
+      COURIER_SMTP_FROM_ADDRESS: ${SMTP_FROM:?set SMTP_FROM in deploy/.env}
+      COURIER_SMTP_FROM_NAME: Income Tracker
+    volumes:
+      - ./kratos:/etc/config/kratos:ro
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      DATABASE_URL: postgres://app:${APP_DB_PASSWORD}@postgres:5432/app
+      MIGRATION_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/app
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      # The recurring catch-up decides "this month" by this clock.
+      TZ: ${TZ:-Africa/Cairo}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kratos:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/caddy/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - kratos
+
+  # Catches every email Kratos sends, in development only: --profile dev.
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    profiles: ["dev"]
+    ports:
+      - "127.0.0.1:8025:8025"
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

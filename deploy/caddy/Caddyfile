@@ -1,0 +1,4 @@
+# Production: automatic HTTPS from Let's Encrypt for $APP_DOMAIN.
+{$APP_DOMAIN} {
+	import /etc/caddy/routes.caddy
+}

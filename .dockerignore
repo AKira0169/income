@@ -1,0 +1,8 @@
+node_modules
+dist
+.tmp
+.git
+.playwright-mcp
+docs
+deploy/.env
+deploy/dev.env

@@ -11,3 +11,6 @@ package-lock.json
 
 # snapshots from browser-driven checks
 .playwright-mcp/
+
+# Production secrets: copy deploy/.env.example
+deploy/.env

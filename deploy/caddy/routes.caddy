@@ -1,0 +1,30 @@
+# Shared by Caddyfile (production) and Caddyfile.dev.
+encode zstd gzip
+
+# Kratos's public port answers /admin/* with a redirect to the admin port. It
+# cannot be followed from outside, but it still names an internal host, so the
+# path is closed here.
+handle /auth/admin/* {
+	respond 404
+}
+
+# Kratos's public API, under our own origin. handle_path strips /auth.
+handle_path /auth/* {
+	reverse_proxy kratos:4433
+}
+
+handle /api/* {
+	reverse_proxy api:3000
+}
+
+# The web build. Hashed assets are immutable; every other path is the app
+# (path routing), so it falls back to index.html, which is always revalidated.
+handle {
+	root * /srv
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@pages not path /assets/*
+	header @pages Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server
+}

@@ -15,7 +15,10 @@
     "db:test:up": "docker compose -f deploy/compose.test.yaml up -d --wait",
     "db:test:down": "docker compose -f deploy/compose.test.yaml down -v",
     "test:db": "node test/migrate.ts && node test/repo.ts && node test/api-core.ts && node test/api-records.ts && node test/api-composite.ts && node test/gold.ts",
-    "start:api": "node server/main.ts"
+    "start:api": "node server/main.ts",
+    "stack:dev": "docker compose --env-file deploy/dev.env -f deploy/compose.yaml -f deploy/compose.dev.yaml --profile dev up -d --build",
+    "stack:dev:down": "docker compose --env-file deploy/dev.env -f deploy/compose.yaml -f deploy/compose.dev.yaml --profile dev down",
+    "stack:dev:logs": "docker compose --env-file deploy/dev.env -f deploy/compose.yaml -f deploy/compose.dev.yaml --profile dev logs -f"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",
