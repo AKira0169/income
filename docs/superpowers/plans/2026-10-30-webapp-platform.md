@@ -26,7 +26,7 @@
 - CSRF: every non-GET `/api/*` request must carry `Origin: https://$APP_DOMAIN`.
 - Errors are `{ "error": { "code", "message" } }` with status 400/401/403/404/409/429/500. A domain throw becomes 400 carrying the domain's message.
 - Docker: the CLI is installed, but the daemon was **not running** when this plan was written (`docker version` could not reach `dockerDesktopLinuxEngine`). No infra step below has been executed yet. Start Docker Desktop before Task 4.
-- The DB test suites (`pnpm test:db`) need `pnpm db:test:up` first. They use a disposable Postgres on `127.0.0.1:54329`.
+- The DB test suites (`pnpm test:db`) need `pnpm db:test:up` first. They use a disposable Postgres on `127.0.0.1:55439`.
 - Commit messages end with a blank line, then `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ---
@@ -926,7 +926,7 @@ services:
       APP_DB_PASSWORD: test-app
       KRATOS_DB_PASSWORD: test-kratos
     ports:
-      - "127.0.0.1:54329:5432"
+      - "127.0.0.1:55439:5432"
     tmpfs:
       - /var/lib/postgresql/data
     volumes:
@@ -1362,8 +1362,8 @@ import { connect } from '../../server/db.ts';
 import type { Sql } from '../../server/db.ts';
 import { migrate } from '../../server/migrate.ts';
 
-export const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://postgres:test-admin@127.0.0.1:54329/app';
-export const APP_URL = process.env.TEST_APP_URL ?? 'postgres://app:test-app@127.0.0.1:54329/app';
+export const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://postgres:test-admin@127.0.0.1:55439/app';
+export const APP_URL = process.env.TEST_APP_URL ?? 'postgres://app:test-app@127.0.0.1:55439/app';
 
 export interface TestDb {
   admin: Sql;
@@ -3544,8 +3544,8 @@ Smoke-test the entry point against the test database, in Git Bash:
 
 ```bash
 APP_DOMAIN=localhost PORT=3999 KRATOS_PUBLIC_URL=http://127.0.0.1:9 \
-MIGRATION_DATABASE_URL=postgres://postgres:test-admin@127.0.0.1:54329/app \
-DATABASE_URL=postgres://app:test-app@127.0.0.1:54329/app \
+MIGRATION_DATABASE_URL=postgres://postgres:test-admin@127.0.0.1:55439/app \
+DATABASE_URL=postgres://app:test-app@127.0.0.1:55439/app \
 node server/main.ts & API=$!
 until curl -sf http://127.0.0.1:3999/healthz; do sleep 0.5; done; echo
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3999/api/me
@@ -6468,7 +6468,7 @@ Excel file is a report, not a backup.
 ```
 pnpm install       # once
 pnpm test          # typecheck + the Node suites (no database needed)
-pnpm db:test:up    # a throwaway Postgres on 127.0.0.1:54329
+pnpm db:test:up    # a throwaway Postgres on 127.0.0.1:55439
 pnpm test:db       # schema, repository, api and gold-price suites against it
 pnpm build         # dist/web
 pnpm stack:dev     # the whole stack at https://localhost, mail at http://localhost:8025

@@ -1,0 +1,9 @@
+/* The api runs in Node and imports the domain directly, so it gets Node's
+   globals; the web half is still checked by tsconfig.json without them. */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["server/**/*.ts", "src/domain/**/*.ts", "src/wire.ts"]
+}
