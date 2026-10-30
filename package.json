@@ -2,7 +2,7 @@
   "name": "income-tracker",
   "version": "1.0.0",
   "private": true,
-  "description": "Offline single-file tracker for income, bills, utilities, purchases and savings, with Excel export",
+  "description": "Personal income, bills, purchases and savings tracker — web app with Excel export",
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
