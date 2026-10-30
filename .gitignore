@@ -14,3 +14,7 @@ package-lock.json
 
 # Production secrets: copy deploy/.env.example
 deploy/.env
+
+# The offline build (tag v1-offline), kept locally only to download a backup
+# of data that still lives in the browser that opened it.
+income-tracker.html
