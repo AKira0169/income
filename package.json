@@ -14,7 +14,7 @@
     "test:full": "pnpm test && pnpm test:browser",
     "db:test:up": "docker compose -f deploy/compose.test.yaml up -d --wait",
     "db:test:down": "docker compose -f deploy/compose.test.yaml down -v",
-    "test:db": "node test/migrate.ts && node test/repo.ts"
+    "test:db": "node test/migrate.ts && node test/repo.ts && node test/api-core.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",
