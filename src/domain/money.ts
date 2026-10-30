@@ -72,3 +72,19 @@ export function formatMoney(cents: Cents, settings: Settings, opts: FormatMoneyO
   });
   return `${value < 0 ? '-' : ''}${settings.currencySymbol || ''}${body}`;
 }
+
+/* How many minor units make one major unit, per ISO 4217 code. Every amount in
+   the app is already an integer number of minor units; this is what says how
+   many of them a currency has, so a yen amount is not divided by a hundred and
+   a Kuwaiti dinar is not short a digit. Only the exceptions are listed — two
+   decimals is the rule. Phase 1 stores it; the multi-currency UI reads it. */
+export const CURRENCY_EXPONENT: Readonly<Record<string, number>> = {
+  JPY: 0,
+  KWD: 3,
+  BHD: 3,
+  OMR: 3
+};
+
+export function currencyExponent(code: string | null | undefined): number {
+  return CURRENCY_EXPONENT[String(code ?? '').toUpperCase()] ?? 2;
+}
