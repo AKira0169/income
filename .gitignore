@@ -1,8 +1,7 @@
 node_modules/
 
-# The single-file artifact is a build output: rebuild it with `pnpm build`.
-# Tracking it made every build dirty the tree and every diff a megabyte long.
-income-tracker.html
+# The web build output: rebuild it with `pnpm build`.
+dist/
 
 # npm's lockfile — this project is on pnpm, see packageManager in package.json
 package-lock.json

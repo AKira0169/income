@@ -1,91 +1,99 @@
-/* build.mjs — bundles src/ and the SQLite engine into a single self-contained
-   income-tracker.html.  Run: node build.mjs
+/* build.mjs — bundles src/web into dist/web: index.html plus hashed JS and
+   CSS under dist/web/assets.  Run: node build.mjs
 
-   The page must work when opened straight off the disk, so everything ships
-   inside one file: a file:// document cannot fetch a sibling, and OPFS is
-   unavailable there — verified, not assumed.
+   The page is served by Caddy from one origin with the api and Kratos, so it no
+   longer has to be one self-contained file. Hashed names let Caddy cache the
+   assets forever while index.html is always revalidated — a new build is picked
+   up on the next load, never half of one.
 
-   dev.mjs imports the pieces below rather than shelling out to this file, so
-   the served page and the shipped page are assembled by the same code. */
+   dev.mjs imports bundleOptions() and writeIndex() rather than shelling out, so
+   the watched build and the shipped build are assembled by the same code. */
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 export const here = dirname(fileURLToPath(import.meta.url));
-const src = (name) => readFileSync(join(here, 'src', name), 'utf8');
+export const outDir = join(here, 'dist', 'web');
+const OUT_PREFIX = 'dist/web/';
 
-/* A literal </script> anywhere in the bundle would close the tag early. Applied
-   last, so it also covers anything minification moved into a string. */
-const guard = (code) => code.replace(/<\/script>/gi, '<\\/script>');
-
-/* Stamped into the page and shown beside the title. A browser holding an old
-   copy of a file:// page is otherwise indistinguishable from a build that did
-   not happen, and the two are fixed in completely different ways. */
+/* Stamped into the bundle and shown beside the title, so a stale tab is
+   obvious at a glance. */
 export const buildStamp = () => new Date().toLocaleString('en-GB', {
   day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
 }).replace(',', ' ·');
 
-/** Shared by `node build.mjs` and by dev's watch context, so the two cannot
-    drift into bundling the app differently.
+/** Shared by `node build.mjs` and dev's watch context.
 
-    The annotation is load-bearing. Returned from a function rather than written
-    inline at the call site, `format: 'iife'` widens to `string` and esbuild's
-    own types stop accepting it; and pinning `write` to the literal `false` is
-    what makes `outputFiles` non-optional in the result.
+    The annotation is load-bearing: pinning `metafile` to the literal `true` is
+    what makes `result.metafile` non-optional for the caller.
 
-    @returns {import('esbuild').BuildOptions & { write: false }} */
-export function bundleOptions() {
+    @param {string} stamp
+    @param {boolean} [minify]
+    @returns {import('esbuild').BuildOptions & { metafile: true; write: true }} */
+export function bundleOptions(stamp, minify = true) {
   return {
-    entryPoints: [join(here, 'src', 'web', 'main.tsx')],
+    absWorkingDir: here,
+    entryPoints: {
+      app: join(here, 'src', 'web', 'main.tsx'),
+      style: join(here, 'src', 'web', 'app.css')
+    },
+    outdir: outDir,
+    entryNames: 'assets/[name]-[hash]',
     bundle: true,
-    format: 'iife',
+    format: 'esm',
     // esbuild does not read tsconfig's `target`; the app is Chrome/Edge only.
     target: ['chrome110'],
     platform: 'browser',
-    minify: true,
-    // Without this esbuild escapes every non-ASCII character to \uXXXX, which
-    // bloats the bundle and mangles the currency and unit symbols on review.
+    minify,
+    sourcemap: minify ? false : 'linked',
+    // Without this esbuild escapes every non-ASCII character to \uXXXX.
     charset: 'utf8',
     legalComments: 'none',
-    write: false,
-    /* Preact's automatic runtime, matching tsconfig.json — components never
-       import `h`. NODE_ENV is defined because Preact's own source reads it, and
-       an undefined `process` on a file:// page throws — which Invariant 6 (zero
-       console errors) forbids. */
+    metafile: true,
+    write: true,
     jsx: 'automatic',
     jsxImportSource: 'preact',
-    define: { 'process.env.NODE_ENV': '"production"' }
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __BUILD__: JSON.stringify(stamp)
+    }
   };
 }
 
-/** The whole single-file page, from an already-bundled application script.
-    `extra` is appended inside the same <script>; dev uses it for live reload. */
-export function page(bundled, stamp = buildStamp(), extra = '') {
-  const js = [
-    `globalThis.__BUILD__ = ${JSON.stringify(stamp)};`,
-    '/* ---- application bundle (built from src/*.ts) ---- */',
-    guard(bundled),
-    extra
-  ].join('\n');
-
-  return src('shell.html')
-    .replace('/*{{CSS}}*/', () => src('app.css'))
-    .replace('/*{{JS}}*/', () => js);
+/** Writes dist/web/index.html pointing at whatever the last build emitted.
+    @param {import('esbuild').Metafile} metafile
+    @returns {{ js: string; css: string }} */
+export function writeIndex(metafile) {
+  /** @param {string} entry */
+  const urlOf = (entry) => {
+    const hit = Object.entries(metafile.outputs)
+      .find(([file, out]) => out.entryPoint === entry && !file.endsWith('.map'));
+    if (!hit) throw new Error(`build produced nothing for ${entry}`);
+    return '/' + hit[0].replaceAll('\\', '/').slice(OUT_PREFIX.length);
+  };
+  const js = urlOf('src/web/main.tsx');
+  const css = urlOf('src/web/app.css');
+  const html = readFileSync(join(here, 'src', 'web', 'index.html'), 'utf8')
+    .replace('<!--{{CSS}}-->', `<link rel="stylesheet" href="${css}">`)
+    .replace('<!--{{JS}}-->', `<script type="module" src="${js}"></script>`);
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, 'index.html'), html, 'utf8');
+  return { js, css };
 }
 
-/* Only when run directly — dev.mjs imports the helpers above instead. */
+/** @param {{ stamp?: string; minify?: boolean }} [options] */
+export async function buildWeb({ stamp = buildStamp(), minify = true } = {}) {
+  rmSync(outDir, { recursive: true, force: true });
+  const result = await build(bundleOptions(stamp, minify));
+  return writeIndex(result.metafile);
+}
+
+/* Only when run directly — dev.mjs and the tests import the helpers above. */
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const stamp = buildStamp();
-  const result = await build(bundleOptions());
-  const bundled = result.outputFiles[0]?.text ?? '';
-  const html = page(bundled, stamp);
-
-  const out = join(here, 'income-tracker.html');
-  writeFileSync(out, html, 'utf8');
-
-  const mb = (bytes) => (bytes / 1024 / 1024).toFixed(2);
-  console.log(`built ${out} (${mb(Buffer.byteLength(html, 'utf8'))} MB, nothing to install)`);
-  console.log(`  stamped: ${stamp} — shown beside the title, so a stale tab is obvious`);
-  console.log(`  app bundle: ${(Buffer.byteLength(bundled, 'utf8') / 1024).toFixed(0)} KB minified`);
+  const { js, css } = await buildWeb({ stamp });
+  console.log(`built ${outDir}`);
+  console.log(`  ${js}\n  ${css}`);
+  console.log(`  stamped: ${stamp}`);
 }
