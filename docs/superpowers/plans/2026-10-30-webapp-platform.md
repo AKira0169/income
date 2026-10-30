@@ -2927,7 +2927,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 | `POST /api/backup/import` | `Record<CollectionKey, number>` |
 | `DELETE /api/data` | `null` |
 
-- Produces `test/support/ids.ts`: `deterministicIds(): void`, `resetIds(): void`.
+- Produces `test/support/ids.ts`: `deterministicIds(): void`, `markIds(): number`, `rewindIds(mark: number): void` (rewinding to a mark, never to zero, so earlier ids are not reused).
 
 - [ ] **Step 1: Write the failing test**
 

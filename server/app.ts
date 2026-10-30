@@ -15,6 +15,8 @@ import { HttpError, toErrorResponse } from './errors.ts';
 import type { Identity } from './kratos.ts';
 import { tokenBucket } from './ratelimit.ts';
 import { ensureUser, loadState, readVersion } from './repo.ts';
+import { compositeRoutes } from './routes/composite.ts';
+import { recordRoutes } from './routes/records.ts';
 
 export interface AppDeps {
   sql: Sql;
@@ -90,6 +92,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     const body: StateResponse = { version: loaded.version, state: loaded.state };
     return c.json(body);
   });
+
+  // Specific routes before generic ones: Hono matches in registration order.
+  compositeRoutes(app, deps);
+  recordRoutes(app, deps);
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'No such endpoint.' } }, 404));
 
