@@ -1,21 +1,34 @@
-/* Browser test: drives the built income-tracker.html from a real file:// origin.
+/* Browser test: drives the app in a real browser against the dev stack —
+   https://localhost, with Kratos, the api and Postgres behind Caddy.
 
-   This is the half Node cannot reach. The suite in export.ts runs the store and
-   the workbook writer against plain memory; nothing there touches SQLite/WASM,
-   IndexedDB, the DOM, or the Blob path the download button uses. Those only
-   exist in a browser, and only behave correctly on a file:// origin — which is
-   how the app is actually opened, and is a different storage origin from any
-   localhost server.
+   This is the half Node cannot reach: the real forms, the DOM, the Blob path,
+   the sign-in screens and the session cookie. It signs a fresh person up
+   through the UI, runs the offline build's regression checks against the
+   server, imports a backup and compares the figures with the domain's own
+   arithmetic, and ends with email verification, recovery, two-factor sign-in
+   and logging out.
 
-   Run:  node test/browser.mjs        (after `node build.mjs`)
-   Set CHROME_PATH to pick a specific browser. */
+   Run:  pnpm stack:dev && pnpm test:browser
+   Set CHROME_PATH to pick a browser, APP_URL / MAILPIT_URL to aim elsewhere. */
 import puppeteer from 'puppeteer-core';
-import { existsSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { importJSON } from '../src/domain/backup.ts';
+import { formatMoney } from '../src/domain/money.ts';
+import { accountBalance, summary } from '../src/domain/selectors.ts';
+import { fixtureBackup } from './support/fixture.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = pathToFileURL(join(here, '..', 'income-tracker.html')).href;
+const root = join(here, '..');
+const BASE = process.env.APP_URL ?? 'https://localhost';
+const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
+const COMPOSE = ['compose', '--env-file', 'deploy/dev.env', '-f', 'deploy/compose.yaml'];
+const email = `browser-${Date.now()}@example.test`;
+const firstPassword = `First-${Date.now()}-correct-horse`;
+const secondPassword = `Second-${Date.now()}-battery-staple`;
 
 const CANDIDATES = [
   process.env.CHROME_PATH,
@@ -42,57 +55,125 @@ const check = (label, actual, expected) => {
   } else console.log(`  ok   ${label}`);
 };
 
-const browser = await puppeteer.launch({
-  executablePath,
-  headless: true,
-  args: ['--allow-file-access-from-files']
-});
+/** SQL straight into the dev database — only for the shared gold prices, which no user can write. */
+const psql = (sql) => execFileSync('docker', [...COMPOSE, 'exec', '-T', 'postgres',
+  'psql', '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: root, stdio: 'pipe' });
+
+/** Ids of every message Mailpit holds, so a new one can be told apart. */
+const mailIds = async () => new Set(((await (await fetch(`${MAILPIT}/api/v1/messages`)).json()).messages ?? [])
+  .map((m) => m.ID));
+
+/** The six-digit code in the first new message to `to`. */
+async function mailedCode(to, seen) {
+  for (let i = 0; i < 60; i++) {
+    const list = (await (await fetch(`${MAILPIT}/api/v1/messages`)).json()).messages ?? [];
+    const hit = list.find((m) => !seen.has(m.ID) && m.To?.some((t) => t.Address === to));
+    if (hit) {
+      const full = await (await fetch(`${MAILPIT}/api/v1/message/${hit.ID}`)).json();
+      const code = /\b(\d{6})\b/.exec(full.Text ?? '')?.[1];
+      if (code) return code;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`no code was mailed to ${to}`);
+}
+
+/** RFC 6238 TOTP, as an authenticator app computes it. */
+function totp(secret, at = Date.now()) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const ch of secret.replace(/\s|=+$/g, '').toUpperCase()) bits += alphabet.indexOf(ch).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30000)));
+  const mac = createHmac('sha1', key).update(counter).digest();
+  const offset = mac[mac.length - 1] & 15;
+  return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1e6).padStart(6, '0');
+}
+
+/** A code different from the last one used, waiting out the 30 s window if need be. */
+async function freshTotp(secret, used) {
+  while (totp(secret) === used) await new Promise((r) => setTimeout(r, 1000));
+  return totp(secret);
+}
+
+const browser = await puppeteer.launch({ executablePath, headless: true, acceptInsecureCerts: true });
 
 try {
   const tab = await browser.newPage();
   const errors = [];
   tab.on('pageerror', (e) => errors.push(String(e)));
-  tab.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  /* The sign-in protocol answers 401 (no session yet), 403 (second factor
+     owed) and 422 (go elsewhere) as a matter of course, and Chrome logs every
+     non-2xx response as a console error. Those are the protocol working, not
+     the app failing; anything else still counts. */
+  const EXPECTED_STATUS = /Failed to load resource: the server responded with a status of (401|403|422)/;
+  tab.on('console', (m) => { if (m.type() === 'error' && !EXPECTED_STATUS.test(m.text())) errors.push(m.text()); });
+  tab.on('dialog', (d) => void d.accept());
 
-  /* The app puts its route in the hash, so once it has run the URL is
-     `…income-tracker.html#/income/2026-07`. Navigating from that back to the
-     bare file:// URL differs only by fragment, which the browser treats as a
-     same-document navigation: nothing reloads, and the persistence checks below
-     would pass without SQLite ever having been re-opened. The explicit reload
-     is what makes them mean anything; the probe below is what proves it. */
+  /** Every write answered, then one more frame for the redraw. */
+  const settle = () => tab.evaluate(() => globalThis.__app.idle().then(() => new Promise((r) => setTimeout(r, 150))));
+
   const open = async () => {
-    await tab.goto(page, { waitUntil: 'load' });
-    await tab.reload({ waitUntil: 'load' });
+    await tab.goto(`${BASE}/`, { waitUntil: 'load' });
     await tab.waitForSelector('.topbar', { timeout: 30000 });
+    await settle();
   };
 
+  const clickButton = (text, scope = 'body') => tab.evaluate((t, s) =>
+    [...document.querySelector(s).querySelectorAll('button')].find((b) => b.textContent === t).click(), text, scope);
+
+  const logOut = async () => {
+    await open();
+    await clickButton('Log out', '.account-menu');
+    await tab.waitForSelector('input[name="identifier"]', { timeout: 15000 });
+  };
+
+  const submitPassword = async (password) => {
+    await tab.type('input[name="identifier"]', email);
+    await tab.type('input[name="password"]', password);
+    await tab.click('button[name="method"][value="password"]');
+  };
+
+  /* ---------------- signing up ---------------- */
+  console.log('signing up through the real form:');
+  await tab.goto(`${BASE}/registration`, { waitUntil: 'load' });
+  await tab.waitForSelector('input[name="traits.email"]', { timeout: 30000 });
+  await tab.type('input[name="traits.email"]', email);
+  await tab.type('input[name="password"]', firstPassword);
+  await tab.click('button[name="method"][value="password"]');
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
+  await settle();
+  check('a new account lands in the app', new URL(tab.url()).pathname.startsWith('/dashboard/'), true);
+  check('the topbar says who is signed in',
+    await tab.evaluate((e) => document.querySelector('.account-menu').textContent.includes(e), email), true);
+  check('and they are asked to verify their email',
+    await tab.evaluate(() => !!document.querySelector('.notice.warn')), true);
+
   /* ---------------- boot ---------------- */
-  console.log('boot:');
-  await open();
-  check('the build stamp is on the page', await tab.evaluate(() => typeof globalThis.__BUILD__ === 'string'), true);
-  check('sqlite reached IndexedDB, not the memory fallback',
-    await tab.evaluate(() => globalThis.__app.backend()), 'indexeddb');
+  console.log('\nboot:');
+  check('the build stamp is on the page',
+    await tab.evaluate(() => !!document.querySelector('.brand span')?.textContent), true);
   check('every tab renders',
     await tab.evaluate(() => document.querySelectorAll('.tab').length), 8);
 
-  /* ---------------- hash routing ---------------- */
-  console.log('\nhash routing (reload and back/forward):');
+  /* ---------------- path routing ---------------- */
+  console.log('\npath routing (reload and back/forward):');
   const selectedTab = () => tab.evaluate(() =>
     [...document.querySelectorAll('.tab')].find((b) => b.getAttribute('aria-selected') === 'true')?.textContent);
-  const settle = () => tab.evaluate(() => new Promise((r) => setTimeout(r, 100)));
 
   await tab.evaluate(() => globalThis.__app.goTab('gold'));
   await settle();
-  check('the tab is in the address bar', /#\/gold\/\d{4}-\d{2}$/.test(tab.url()), true);
+  check('the tab is in the address bar', /\/gold\/\d{4}-\d{2}$/.test(tab.url()), true);
 
   await tab.evaluate(() => [...document.querySelectorAll('.period-nav button')]
     .find((b) => b.getAttribute('aria-label') === 'Previous month').click());
   await settle();
   const stepped = tab.url();
-  check('and so is the month', /#\/gold\/\d{4}-\d{2}$/.test(stepped), true);
+  check('and so is the month', /\/gold\/\d{4}-\d{2}$/.test(stepped), true);
 
   await tab.reload({ waitUntil: 'load' });
-  await tab.waitForSelector('.topbar');
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
   check('a reload lands on the same tab', await selectedTab(), 'Gold');
   check('in the same month', tab.url(), stepped);
 
@@ -103,9 +184,13 @@ try {
   await settle();
   check('and forward returns', tab.url(), stepped);
 
+  await tab.goto(`${BASE}/bills/2026-07`, { waitUntil: 'load' });
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
+  check('a deep link opens on its own tab', await selectedTab(), 'Bills');
+
   // Start from a clean database, whatever a previous run left behind.
   await tab.evaluate(() => globalThis.__app.clearAll());
-  await tab.evaluate(() => new Promise((r) => setTimeout(r, 300)));
+  await settle();
 
   /* ---------------- entering data through the UI ---------------- */
   console.log('\nadding records through the real forms:');
@@ -134,7 +219,7 @@ try {
     form.querySelector('select[name="accountId"]').value = 'acc_t';
     form.requestSubmit();
   });
-  await tab.evaluate(() => new Promise((r) => setTimeout(r, 300)));
+  await settle();
 
   const entered = await tab.evaluate(() => globalThis.__app.state().income[0]);
   check('the form wrote one income entry', await tab.evaluate(() => globalThis.__app.state().income.length), 1);
@@ -147,10 +232,10 @@ try {
     await tab.evaluate(() => globalThis.__app.accountBalance('acc_t')), 100000 + 123456);
 
   /* ---------------- persistence across a reload ---------------- */
-  console.log('\npersistence (SQLite -> IndexedDB -> reload):');
+  console.log('\npersistence (server -> reload):');
   await tab.evaluate(() => { globalThis.__probe = 'survived'; });
   await open();
-  check('open() really reloaded the page, hash routing notwithstanding',
+  check('open() really reloaded the page',
     await tab.evaluate(() => globalThis.__probe), undefined);
   const after = await tab.evaluate(() => globalThis.__app.state().income[0]);
   check('the entry is still there after a reload', !!after, true);
@@ -199,7 +284,7 @@ try {
   await tab.evaluate(() => globalThis.__app.upsert('accounts', {
     name: 'Distraction', type: 'Current Account', opening: 0, target: 0, notes: ''
   }));
-  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+  await settle();
 
   // Without this the check above could pass by the form never redrawing at all.
   check('the open form really did redraw', (await optionCount()) > optionsBefore, true);
@@ -297,13 +382,17 @@ try {
      here, and a component that throws on its first render takes the whole page
      with it — so each one is opened once with records on screen. */
   console.log('\nevery tab draws with data in it:');
-  await tab.evaluate(() => {
+  await tab.evaluate(async () => {
     const a = globalThis.__app;
-    a.upsert('savingsTx', { id: 'sav_t', date: '2026-07-07', accountId: 'acc_t', fromAccountId: '', direction: 'in', amount: 50000, notes: '' });
-    a.upsert('goldPrices', { id: 'gpr_2026-07-29', date: '2026-07-29', usdPerOz: 3110.34768, egpPerUsd: 10, egpPerGram24: 100000, source: 'test', fetchedAt: '' });
-    a.upsert('goldPrices', { id: 'gpr_2026-07-30', date: '2026-07-30', usdPerOz: 3200, egpPerUsd: 10, egpPerGram24: 102890, source: 'test', fetchedAt: '' });
-    a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
+    await a.upsert('savingsTx', { id: 'sav_t', date: '2026-07-07', accountId: 'acc_t', fromAccountId: '', direction: 'in', amount: 50000, notes: '' });
+    await a.upsert('gold', { id: 'gld_t', date: '2026-07-10', direction: 'buy', karat: 21, grams: 8, pricePerGram: 90000, amount: 720000, accountId: 'acc_t', dealer: 'Souq', notes: '' });
   });
+  /* Gold prices are shared and written only by the server's daily job, so the
+     two the sparkline needs go straight into the database. */
+  psql(`INSERT INTO gold_prices (date, usd_per_oz, egp_per_usd, egp_per_gram24, source, fetched_at) VALUES
+    ('2026-07-29', 3110.34768, 10, 100000, 'browser-test', ''),
+    ('2026-07-30', 3200, 10, 102890, 'browser-test', '') ON CONFLICT (date) DO NOTHING`);
+  await tab.evaluate(() => globalThis.__app.reload());
 
   for (const id of ['dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings']) {
     await tab.evaluate((t) => globalThis.__app.goTab(t), id);
@@ -332,31 +421,12 @@ try {
   check('it starts with the ZIP magic number', xlsx.zip, true);
   check('and survives being wrapped in a Blob', xlsx.blobSize, xlsx.length);
 
-  const db = await tab.evaluate(() => {
-    const bytes = globalThis.__app.exportDb();
-    // Every SQLite file starts with this header string.
-    return String.fromCharCode(...bytes.slice(0, 15));
-  });
-  check('the .db download is a real SQLite file', db, 'SQLite format 3');
-
-  /* ---------------- the read-only SQL console ---------------- */
-  console.log('\nSQL console:');
-  check('a SELECT returns the row just entered', await tab.evaluate(() =>
-    globalThis.__app.query('SELECT source, amount FROM income').rows[0]),
-  ['Ünïcode Ltd 💷', 123456]);
-  check('a write is refused', await tab.evaluate(() => {
-    try { globalThis.__app.query('DELETE FROM income'); return 'allowed'; }
-    catch { return 'refused'; }
-  }), 'refused');
-  check('the delete really did not happen',
-    await tab.evaluate(() => globalThis.__app.state().income.length), 1);
-
   /* ---------------- goals: ordering, the form, and SQLite ---------------- */
   console.log('\nthe Goals tab:');
-  await tab.evaluate(() => {
+  await tab.evaluate(async () => {
     const a = globalThis.__app;
-    a.upsert('goals', { id: 'gol_1', name: 'First', price: 100000, priority: 1, boughtDate: '', notes: '' });
-    a.upsert('goals', { id: 'gol_2', name: 'Second', price: 200000, priority: 2, boughtDate: '', notes: '' });
+    await a.upsert('goals', { id: 'gol_1', name: 'First', price: 100000, priority: 1, boughtDate: '', notes: '' });
+    await a.upsert('goals', { id: 'gol_2', name: 'Second', price: 200000, priority: 2, boughtDate: '', notes: '' });
   });
   await tab.evaluate(() => globalThis.__app.goTab('goals'));
   await settle();
@@ -401,7 +471,7 @@ try {
   await tab.evaluate(() => globalThis.__app.upsert('goals', {
     id: 'gol_3', name: 'Distraction', price: 0, priority: 3, boughtDate: '', notes: ''
   }));
-  await tab.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+  await settle();
   check('the open goal form really did redraw', (await goalOrder()).length, 3);
   check('and the half-typed name is still there',
     await tab.evaluate(() => document.querySelector('form input[name="name"]').value), 'half typed');
@@ -502,9 +572,9 @@ try {
   }), true);
   check('while the sustained-average banner stays absent',
     await tab.evaluate(() => !!document.querySelector('.notice.danger')), false);
-  await tab.evaluate(() => {
-    globalThis.__app.upsert('incomeTemplates', { id: 'itp_t', active: false });
-    globalThis.__app.upsert('billTemplates', { id: 'bit_lump', active: false });
+  await tab.evaluate(async () => {
+    await globalThis.__app.upsert('incomeTemplates', { id: 'itp_t', active: false });
+    await globalThis.__app.upsert('billTemplates', { id: 'bit_lump', active: false });
   });
   await settle();
 
@@ -608,7 +678,7 @@ try {
   check('written as a purchase you can see, edit and delete',
     [correction?.amount, correction?.accountId], [12345, 'acc_t']);
 
-  console.log('\ngoals survive the SQLite round-trip:');
+  console.log('\ngoals survive a reload from Postgres:');
   await open();
   const storedGoal = await tab.evaluate(() =>
     globalThis.__app.state().goals.find((g) => g.id === 'gol_1'));
@@ -622,7 +692,7 @@ try {
      what every debt rule keys off. */
   const storedDebt = await tab.evaluate(() =>
     globalThis.__app.state().accounts.find((a) => a.name === 'Brother-in-law'));
-  check('a debt comes back out of SQLite as a debt',
+  check('a debt comes back out of Postgres as a debt',
     [storedDebt?.type, storedDebt?.opening, storedDebt?.target], ['Loan / Debt', 0, 0]);
   check('with both of its movements, and settled',
     await tab.evaluate((id) => [
@@ -631,9 +701,106 @@ try {
       globalThis.__app.accountBalance(id)
     ], storedDebt?.id), [2, 0]);
 
+  /* ---------------- importing an offline backup ---------------- */
+  console.log('\nimporting a v1-offline backup shows the same figures:');
+  const backupText = fixtureBackup();
+  const expected = importJSON(backupText).state;
+  const fixtureFile = join(root, '.tmp', 'fixture-backup.json');
+  mkdirSync(dirname(fixtureFile), { recursive: true });
+  writeFileSync(fixtureFile, backupText);
+  await tab.evaluate(() => globalThis.__app.goTab('settings'));
+  await settle();
+  const restoreInput = await tab.$('input[type="file"]');
+  await restoreInput.uploadFile(fixtureFile);
+  await tab.waitForFunction((n) => globalThis.__app.state().income.length === n, { timeout: 15000 }, expected.income.length);
+  await settle();
+  const counts = (s) => [s.income, s.bills, s.purchases, s.accounts, s.goals, s.savingsTx, s.gold, s.incomeTemplates, s.billTemplates]
+    .map((list) => list.length);
+  check('every collection arrived whole', counts(await tab.evaluate(() => globalThis.__app.state())), counts(expected));
+  for (const account of expected.accounts) {
+    check(`${account.name} has the same balance`,
+      await tab.evaluate((id) => globalThis.__app.accountBalance(id), account.id), accountBalance(expected, account.id));
+  }
+  for (const p of ['2026-05', '2026-06', '2026-07']) {
+    await tab.evaluate((period) => { globalThis.__app.goTab('dashboard'); globalThis.__app.goPeriod(period); }, p);
+    await settle();
+    const shown = await tab.evaluate(() => Object.fromEntries([...document.querySelectorAll('.figure')]
+      .map((f) => [f.querySelector('.label')?.textContent, f.querySelector('.figure-value')?.textContent])));
+    const s = summary(expected, p);
+    const money = (cents) => formatMoney(cents, expected.settings);
+    check(`the dashboard for ${p} shows the same figures`,
+      [shown['Income'], shown['Spent'], shown['Net'], shown['Saved']],
+      [money(s.income), money(s.spent), money(s.net), money(s.savedNet)]);
+  }
+
+  /* ---------------- verifying the email address ---------------- */
+  console.log('\nverifying the email address:');
+  let seen = await mailIds();
+  await tab.goto(`${BASE}/verification`, { waitUntil: 'load' });
+  await tab.waitForSelector('input[name="email"]', { timeout: 15000 });
+  await tab.type('input[name="email"]', email);
+  await tab.click('button[name="method"][value="code"]');
+  const verifyCode = await mailedCode(email, seen);
+  await tab.waitForSelector('input[name="code"]', { timeout: 15000 });
+  await tab.type('input[name="code"]', verifyCode);
+  await tab.click('button[name="method"][value="code"]');
+  await tab.waitForSelector('.auth-message.is-success', { timeout: 15000 });
+  await open();
+  check('the verify notice is gone', await tab.evaluate(() => !!document.querySelector('.notice.warn')), false);
+
+  /* ---------------- recovering a forgotten password ---------------- */
+  console.log('\nrecovering a forgotten password:');
+  await logOut();
+  check('logging out lands on sign-in', new URL(tab.url()).pathname, '/login');
+  check('and the api no longer answers', await tab.evaluate(async () => (await fetch('/api/me')).status), 401);
+  seen = await mailIds();
+  await tab.goto(`${BASE}/recovery`, { waitUntil: 'load' });
+  await tab.waitForSelector('input[name="email"]', { timeout: 15000 });
+  await tab.type('input[name="email"]', email);
+  await tab.click('button[name="method"][value="code"]');
+  const recoveryCode = await mailedCode(email, seen);
+  await tab.waitForSelector('input[name="code"]', { timeout: 15000 });
+  await tab.type('input[name="code"]', recoveryCode);
+  await tab.click('button[name="method"][value="code"]');
+  await tab.waitForSelector('[data-node-id="password"] input', { timeout: 15000 });
+  check('a correct code opens the security screen', new URL(tab.url()).pathname, '/settings/security');
+  await tab.type('[data-node-id="password"] input', secondPassword);
+  await tab.click('button[name="method"][value="password"]');
+  await tab.waitForSelector('.auth-message.is-success', { timeout: 15000 });
+  await logOut();
+  await submitPassword(secondPassword);
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
+  check('the new password signs in', !!(await tab.$('.topbar')), true);
+
+  /* ---------------- two-factor sign-in ---------------- */
+  console.log('\ntwo-factor sign-in:');
+  await tab.goto(`${BASE}/settings/security`, { waitUntil: 'load' });
+  await tab.waitForSelector('[data-node-id="totp_secret_key"] code', { timeout: 15000 });
+  check('a QR code is shown to scan', await tab.evaluate(() => !!document.querySelector('[data-node-id="totp_qr"] img')), true);
+  const secret = await tab.$eval('[data-node-id="totp_secret_key"] code', (el) => el.textContent.trim());
+  const enrolCode = totp(secret);
+  await tab.type('input[name="totp_code"]', enrolCode);
+  await tab.click('button[name="method"][value="totp"]');
+  await tab.waitForSelector('button[name="totp_unlink"]', { timeout: 15000 });
+  check('the authenticator is enrolled', !!(await tab.$('button[name="totp_unlink"]')), true);
+  await logOut();
+  await submitPassword(secondPassword);
+  await tab.waitForSelector('input[name="totp_code"]', { timeout: 30000 });
+  check('a password alone is no longer enough', new URL(tab.url()).pathname, '/login');
+  await tab.type('input[name="totp_code"]', await freshTotp(secret, enrolCode));
+  await tab.click('button[name="method"][value="totp"]');
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
+  await settle();
+  // Accounts, not income: signing in boots, and boot's catch-up has since
+  // filled in the months after the fixture's July.
+  check('the code lets them in, to their own data',
+    (await tab.evaluate(() => globalThis.__app.state().accounts.map((a) => a.id))).sort(),
+    expected.accounts.map((a) => a.id).sort());
+
   /* ---------------- leave nothing behind ---------------- */
   await tab.evaluate(() => globalThis.__app.clearAll());
-  await tab.evaluate(() => new Promise((r) => setTimeout(r, 300)));
+  await settle();
+  psql(`DELETE FROM gold_prices WHERE source = 'browser-test'`);
 
   console.log('\nconsole:');
   check('no uncaught errors or console errors', errors, []);
