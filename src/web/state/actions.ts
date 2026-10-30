@@ -1,123 +1,94 @@
 /* state/actions.ts — every write the screen can make.
 
-   Each one is the same three steps: call the pure domain function with the
-   current state, put the state it returns into the signal, and hand back
-   whatever the caller needs. Nothing here decides anything; the rules all live
-   in domain/. Keeping the shape uniform is the point — a write that forgot to
-   commit would leave the screen showing the old figures. */
+   The same names and the same answers as the offline build — upsert hands back
+   the saved record, reconcile the difference, catchUp the counts — but each is
+   now a request, so each returns a promise. The rules still live in domain/,
+   on the server now: these functions only say which one to run. */
 
 import * as Backup from '../../domain/backup.ts';
-import * as Debt from '../../domain/debt.ts';
-import * as Forecast from '../../domain/forecast.ts';
-import * as Gold from '../../domain/gold.ts';
-import * as Records from '../../domain/records.ts';
-import * as Reconcile from '../../domain/reconcile.ts';
-import * as Recurring from '../../domain/recurring.ts';
-import { app, commit, snapshot } from './app.ts';
+import type * as Debt from '../../domain/debt.ts';
+import type * as Forecast from '../../domain/forecast.ts';
+import { uid } from '../../domain/records.ts';
+import type { Draft } from '../../domain/records.ts';
 import type {
-  CatchUpResult, Cents, CollectionKey, GoldPrice, Id, IsoDate, Period, RecordOf, Settings
+  CatchUpResult, Cents, CollectionKey, Id, IsoDate, Period, RecordOf, Settings
 } from '../../domain/types.ts';
+import type { UserCollection } from '../../wire.ts';
+import { mutate } from './api.ts';
+import { snapshot } from './app.ts';
 
-export function upsert<K extends CollectionKey>(
-  collection: K, record: Records.Draft<K>
-): RecordOf<K> {
-  const result = Records.upsert(app.peek(), collection, record);
-  commit(result.state);
-  return result.record;
+const at = (id: Id): string => encodeURIComponent(id);
+
+export const upsert = <K extends UserCollection>(collection: K, record: Draft<K>): Promise<RecordOf<K>> =>
+  mutate<RecordOf<K>>('POST', `/api/${collection}`, record);
+
+export async function remove(collection: UserCollection, id: Id): Promise<void> {
+  await mutate('DELETE', `/api/${collection}/${at(id)}`);
 }
 
-export function remove(collection: CollectionKey, id: Id): void {
-  commit(Records.remove(app.peek(), collection, id));
+export async function updateSettings(patch: Partial<Settings>): Promise<void> {
+  await mutate('PATCH', '/api/settings', patch);
 }
 
-export function updateSettings(patch: Partial<Settings>): void {
-  commit(Records.updateSettings(app.peek(), patch));
+/** Replaces everything with the backup in `text`. */
+export const importJSON = (text: string): Promise<Record<CollectionKey, number>> =>
+  mutate('POST', '/api/backup/import', undefined, text);
+
+export async function replaceState(next: unknown): Promise<void> {
+  await importJSON(JSON.stringify(next));
 }
 
-export function replaceState(next: unknown): void { commit(Records.migrate(next)); }
-
-export function clearAll(): void { commit(Records.blankState()); }
-
-export function importJSON(text: string): Record<CollectionKey, number> {
-  const result = Backup.importJSON(text);
-  commit(result.state);
-  return result.counts;
+export async function clearAll(): Promise<void> {
+  await mutate('DELETE', '/api/data');
 }
 
+/** Built from what is on screen, which is what the server holds. */
 export const exportJSON = (): string => Backup.exportJSON(snapshot());
 
 /* ------------------------------------------------------------- generation */
 
-export function generateBills(period: Period): number {
-  const result = Recurring.generateBills(app.peek(), period);
-  if (result.created) commit(result.state);
-  return result.created;
-}
+export const generateBills = (period: Period): Promise<number> =>
+  mutate('POST', '/api/recurring/generate', { collection: 'bills', period });
 
-export function generateIncome(period: Period): number {
-  const result = Recurring.generateIncome(app.peek(), period);
-  if (result.created) commit(result.state);
-  return result.created;
-}
+export const generateIncome = (period: Period): Promise<number> =>
+  mutate('POST', '/api/recurring/generate', { collection: 'income', period });
 
-/* The generatedThrough marks move even in a month where nothing was due, so a
-   sweep that added no rows can still need persisting — which is exactly what
-   "did the state object change" answers. */
-export function catchUp(): CatchUpResult {
-  const result = Recurring.catchUp(app.peek());
-  if (result.state !== app.peek()) commit(result.state);
-  return result.result;
-}
+export const catchUp = (): Promise<CatchUpResult> => mutate('POST', '/api/recurring/catch-up', {});
 
-export function linkGeneratedTo(
+export async function linkGeneratedTo(
   collection: 'incomeTemplates' | 'billTemplates',
   template: { id?: Id; accountId?: Id | '' } | null | undefined
-): number {
-  const result = Recurring.linkGeneratedTo(app.peek(), collection, template);
-  if (result.linked) commit(result.state);
-  return result.linked;
+): Promise<number> {
+  // The domain answers 0 for this without looking; no need to ask the server.
+  if (!template?.id || !template.accountId) return 0;
+  return mutate('POST', '/api/recurring/link', {
+    collection, template: { id: template.id, accountId: template.accountId }
+  });
 }
 
-export function recordGoldPrice(reading: Gold.GoldPriceReading): GoldPrice {
-  const result = Gold.recordGoldPrice(app.peek(), reading);
-  commit(result.state);
-  return result.record;
+/* ------------------------------------------------------------------ goals */
+
+/* A new goal is given its id here, so it can be addressed like any other. */
+export async function saveGoal(draft: Draft<'goals'>, paid: Forecast.GoalPayment = {}): Promise<void> {
+  const { id = uid('gol'), ...fields } = draft;
+  await mutate('PUT', `/api/goals/${at(id)}`, { draft: fields, paid });
 }
 
-/* Deleting a goal needs nothing here — remove is already generic over
-   CollectionKey, and orphaning its purchase is a rule inside it. Saving one
-   does not go through the generic upsert, because a goal carries a purchase
-   with it once it is bought. */
-export function saveGoal(
-  draft: Records.Draft<'goals'>, paid: Forecast.GoalPayment = {}
-): void {
-  commit(Forecast.saveGoal(app.peek(), draft, paid));
-}
-
-export function moveGoal(id: Id, delta: number): void {
-  const next = Forecast.moveGoal(app.peek(), id, delta);
-  if (next !== app.peek()) commit(next);
+export async function moveGoal(id: Id, delta: number): Promise<void> {
+  await mutate('POST', `/api/goals/${at(id)}/move`, { delta });
 }
 
 /* ------------------------------------------------- debts and reconciling */
 
-/* Borrowing writes an account and a movement together, so neither goes through
-   the generic upsert: a debt with no movement is an obligation whose money
-   never arrived, and a movement with no account has nowhere to come from. */
-export function borrow(taken: Debt.Borrowing): void {
-  commit(Debt.borrow(app.peek(), taken));
+export async function borrow(taken: Debt.Borrowing): Promise<void> {
+  await mutate('POST', '/api/debts', taken);
 }
 
-export function repay(debtId: Id, paid: Debt.Repayment): void {
-  const next = Debt.repay(app.peek(), debtId, paid);
-  if (next !== app.peek()) commit(next);
+export async function repay(debtId: Id, paid: Debt.Repayment): Promise<void> {
+  await mutate('POST', `/api/debts/${at(debtId)}/repay`, paid);
 }
 
 /** Writes the row that makes an account agree with its real balance, and says
     what it corrected by. Zero means it already agreed and nothing was written. */
-export function reconcile(accountId: Id, actual: Cents, date: IsoDate): Cents {
-  const state = app.peek();
-  const { difference } = Reconcile.reconciliation(state, accountId, actual);
-  if (difference) commit(Reconcile.reconcile(state, accountId, actual, date));
-  return difference;
-}
+export const reconcile = (accountId: Id, actual: Cents, date: IsoDate): Promise<Cents> =>
+  mutate('POST', `/api/accounts/${at(accountId)}/reconcile`, { actual, date });

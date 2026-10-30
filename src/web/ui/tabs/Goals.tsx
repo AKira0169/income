@@ -33,7 +33,7 @@ import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { AddSection, Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { EmptyRow, RowActions, Table } from '../components/Table.tsx';
 import { toast } from '../components/Toast.tsx';
-import { confirmDelete } from '../feedback.ts';
+import { act, confirmDelete } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 
 /** How much of the projection is on screen before you ask for the rest. */
@@ -463,12 +463,12 @@ export function Goals() {
               <button
                 class="quiet small" disabled={i === 0}
                 aria-label={`Move ${g.goal.name} up`}
-                onClick={() => moveGoal(g.goal.id, -1)}
+                onClick={() => void act(() => moveGoal(g.goal.id, -1))}
               >↑</button>
               <button
                 class="quiet small" disabled={i === goals.length - 1}
                 aria-label={`Move ${g.goal.name} down`}
-                onClick={() => moveGoal(g.goal.id, 1)}
+                onClick={() => void act(() => moveGoal(g.goal.id, 1))}
               >↓</button>
             </>
           ) : null}
@@ -478,7 +478,7 @@ export function Goals() {
           <button class="quiet small" onClick={() => setEditing(g.goal)}>Edit</button>
           <button
             class="quiet small danger"
-            onClick={() => { if (confirmDelete('goal')) remove('goals', g.goal.id); }}
+            onClick={() => { if (confirmDelete('goal')) void act(() => remove('goals', g.goal.id)); }}
           >Delete</button>
         </td>
       </tr>
@@ -569,8 +569,8 @@ export function Goals() {
         state={state}
         forceOpen={!state.goals.length}
         onInvalid={() => toast('Fill in the required fields')}
-        onSubmit={(data) => {
-          saveGoal({ ...data, priority: nextPriority(state) });
+        onSubmit={async (data) => {
+          await saveGoal({ ...data, priority: nextPriority(state) });
           toast('Goal added');
         }}
       />
@@ -597,9 +597,9 @@ export function Goals() {
             <label class="check">
               <input
                 type="checkbox" name="forecastSpendingAuto" defaultChecked={auto}
-                onChange={(e) => updateSettings({
+                onChange={(e) => void act(() => updateSettings({
                   forecastSpendingAuto: (e.target as HTMLInputElement).checked
-                })}
+                }))}
               />
               {`Average the last ${SPENDING_WINDOW} complete months`}
             </label>
@@ -607,9 +607,9 @@ export function Goals() {
               type="text" name="forecastSpending" aria-label="Use my own figure"
               placeholder="Use my own figure" disabled={auto}
               defaultValue={state.settings.forecastSpending ? String(toMajor(state.settings.forecastSpending)) : ''}
-              onChange={(e) => updateSettings({
+              onChange={(e) => void act(() => updateSettings({
                 forecastSpending: parseMoney((e.target as HTMLInputElement).value)
-              })}
+              }))}
             />
           </div>
           <div class="assume-row is-total">
@@ -686,7 +686,7 @@ export function Goals() {
                     </td>
                     <RowActions
                       onEdit={() => setEditing(g)}
-                      onDelete={() => { if (confirmDelete('goal')) remove('goals', g.id); }}
+                      onDelete={() => { if (confirmDelete('goal')) void act(() => remove('goals', g.id)); }}
                     />
                   </tr>
                 );
@@ -731,9 +731,9 @@ export function Goals() {
               </p>
             </div>
           }
-          onSave={(data) => {
+          onSave={async (data) => {
             const price = data['price'] as Cents;
-            saveGoal(
+            await saveGoal(
               { id: buying.id, boughtDate: data['boughtDate'] as string, price },
               { accountId: data['accountId'] as string, method: data['method'] as string }
             );
@@ -754,7 +754,7 @@ export function Goals() {
           /* Through saveGoal, not upsert: typing a date into "Bought on" here
              has to move the money exactly as the Bought button does, and
              clearing it has to give the money back. */
-          onSave={(data) => { saveGoal(data); toast('Saved'); }}
+          onSave={async (data) => { await saveGoal(data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}

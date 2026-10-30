@@ -9,8 +9,8 @@ import { accountName } from '../../../domain/selectors.ts';
 import {
   goldHoldings, goldIn, goldPricePerGram, goldSummary, latestGoldPrice
 } from '../../../domain/gold.ts';
-import { isBusy, refresh } from '../../state/gold-price.ts';
 import { remove, updateSettings, upsert } from '../../state/actions.ts';
+import { refresh } from '../../state/api.ts';
 import { app } from '../../state/app.ts';
 import { period as routePeriod } from '../../state/route.ts';
 import type { AppState, GoldEntry } from '../../../domain/types.ts';
@@ -20,7 +20,7 @@ import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { AddSection, Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { EmptyRow, listRows, RowActions, Table } from '../components/Table.tsx';
 import { toast } from '../components/Toast.tsx';
-import { confirmDelete, followDate } from '../feedback.ts';
+import { act, confirmDelete, followDate } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 
 const COLUMNS = 8;
@@ -181,14 +181,14 @@ function PriceSettings({ state }: { state: AppState }) {
       <div class="btn-row" style="margin-top:16px">
         <button
           class="primary"
-          onClick={() => {
-            updateSettings({
+          onClick={() => void act(async () => {
+            await updateSettings({
               goldSync: !!sync.current?.checked,
               goldPremium: Number(premium.current?.value) || 0,
               goldManualPrice: parseMoney(manual.current?.value ?? '')
             });
             toast('Price settings saved');
-          }}
+          })}
         >Save price settings</button>
       </div>
     </div>
@@ -201,8 +201,8 @@ export function Gold() {
   const [allTime, setAllTime] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<GoldEntry | null>(null);
-  /* isBusy() is a plain flag inside the fetcher rather than state, so the
-     button needs its own reason to redraw while a fetch is in flight. */
+  /* The price is fetched once a day on the server for everyone; this button
+     reloads it, and needs its own reason to redraw while it does. */
   const [fetching, setFetching] = useState(false);
 
   const summary = goldSummary(state);
@@ -231,7 +231,7 @@ export function Gold() {
         <td>{name ? <div>{name}</div> : <span class="faint">not linked</span>}</td>
         <RowActions
           onEdit={() => setEditing(r)}
-          onDelete={() => { if (confirmDelete('gold entry')) remove('gold', r.id); }}
+          onDelete={() => { if (confirmDelete('gold entry')) void act(() => remove('gold', r.id)); }}
         />
       </tr>
     );
@@ -260,18 +260,15 @@ export function Gold() {
             {state.settings.goldSync === false ? 'syncing off' : 'updated once a day'}
           </span>
           <button
-            disabled={fetching || isBusy()}
+            disabled={fetching}
             onClick={() => {
               setFetching(true);
-              toast('Fetching today\'s price…');
-              void refresh({ manual: true }).then((result) => {
-                setFetching(false);
-                if (result.ok && result.partial) toast(`Price updated, partly — ${result.error}`);
-                else if (result.ok) toast('Price updated');
-                else toast(result.error || 'Could not update the price');
-              });
+              void act(async () => {
+                await refresh();
+                toast('Price reloaded');
+              }).finally(() => setFetching(false));
             }}
-          >{fetching || isBusy() ? 'Updating…' : 'Update price'}</button>
+          >{fetching ? 'Updating…' : 'Update price'}</button>
           <button
             aria-expanded={settingsOpen ? 'true' : 'false'}
             onClick={() => setSettingsOpen(!settingsOpen)}
@@ -343,12 +340,12 @@ export function Gold() {
         state={state}
         forceOpen={!state.gold.length}
         onInvalid={() => toast('Fill in the required fields')}
-        onSubmit={(data) => {
+        onSubmit={async (data) => {
           data.karat = Number(data.karat);
           const grams = Number(data.grams) || 0;
           const amount = Number(data.amount) || 0;
           data.pricePerGram = grams ? Math.round(amount / grams) : 0;
-          upsert('gold', data);
+          await upsert('gold', data);
           followDate(String(data.date ?? ''),
             data.direction === 'sell' ? 'Sale recorded' : 'Purchase recorded');
         }}
@@ -379,7 +376,7 @@ export function Gold() {
         <Editor
           title="Edit gold entry" fields={FIELDS.gold} record={editing} state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { upsert('gold', { ...data, karat: Number(data.karat) }); toast('Saved'); }}
+          onSave={async (data) => { await upsert('gold', { ...data, karat: Number(data.karat) }); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}

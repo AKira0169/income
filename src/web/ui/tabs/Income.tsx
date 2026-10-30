@@ -16,7 +16,7 @@ import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { AddSection, Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { AccountCell, EmptyRow, listRows, RowActions, Table } from '../components/Table.tsx';
 import { toast } from '../components/Toast.tsx';
-import { confirmDelete, followDate } from '../feedback.ts';
+import { act, confirmDelete, followDate } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 
 const COLUMNS = 7;
@@ -71,7 +71,7 @@ export function Income() {
       <td class="truncate muted" title={r.notes || ''}>{r.notes || ''}</td>
       <RowActions
         onEdit={() => setEditing(r)}
-        onDelete={() => { if (confirmDelete('income entry')) remove('income', r.id); }}
+        onDelete={() => { if (confirmDelete('income entry')) void act(() => remove('income', r.id)); }}
       />
     </tr>
   );
@@ -92,7 +92,7 @@ export function Income() {
       </td>
       <RowActions
         onEdit={() => setEditingTemplate(t)}
-        onDelete={() => { if (confirmDelete('recurring income')) remove('incomeTemplates', t.id); }}
+        onDelete={() => { if (confirmDelete('recurring income')) void act(() => remove('incomeTemplates', t.id)); }}
       />
     </tr>
   );
@@ -106,8 +106,8 @@ export function Income() {
         state={state}
         forceOpen={!records.length && !templates.length}
         onInvalid={() => toast('Fill in the required fields')}
-        onSubmit={(data) => {
-          upsert('income', data);
+        onSubmit={async (data) => {
+          await upsert('income', data);
           followDate(String(data.date ?? ''), 'Income added');
         }}
       />
@@ -121,10 +121,10 @@ export function Income() {
           <div class="spacer"><ScopeToggle allTime={allTime} onChange={setAllTime} /></div>
           {!allTime && templates.length ? (
             <button
-              onClick={() => {
-                const made = generateIncome(period);
+              onClick={() => void act(async () => {
+                const made = await generateIncome(period);
                 toast(made ? `Added ${plural(made, 'entry', 'entries')}` : 'Already up to date');
-              }}
+              })}
             >Generate from recurring</button>
           ) : null}
           <span class="num">{money(total)}</span>
@@ -164,7 +164,7 @@ export function Income() {
         <Editor
           title="Edit income" fields={FIELDS.income} record={editing} state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { upsert('income', data); toast('Saved'); }}
+          onSave={async (data) => { await upsert('income', data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -173,8 +173,8 @@ export function Income() {
         <Editor
           title="Edit recurring income" fields={FIELDS.incomeTemplate} record={editingTemplate} state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => {
-            const linked = linkGeneratedTo('incomeTemplates', upsert('incomeTemplates', data));
+          onSave={async (data) => {
+            const linked = await linkGeneratedTo('incomeTemplates', await upsert('incomeTemplates', data));
             toast(linked
               ? `Saved · ${plural(linked, 'past entry', 'past entries')} linked to ${accountName(app.peek(), String(data.accountId ?? ''))}`
               : 'Saved');

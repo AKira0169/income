@@ -8,7 +8,7 @@ import { app } from '../../state/app.ts';
 import { SettingRow } from '../components/Figure.tsx';
 import { Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { toast } from '../components/Toast.tsx';
-import { download } from '../feedback.ts';
+import { act, download } from '../feedback.ts';
 
 export function Settings() {
   const state = app.value;
@@ -31,13 +31,16 @@ export function Settings() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const counts = importJSON(String(reader.result));
-        toast(`Restored ${counts.income} income, ${counts.bills} bills, ${counts.purchases} purchases`);
-      } catch (err) {
-        alert(`That file could not be restored.\n\n${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (restore.current) restore.current.value = '';
+      void (async () => {
+        try {
+          const counts = await importJSON(String(reader.result));
+          toast(`Imported ${counts.income} income, ${counts.bills} bills, ${counts.purchases} purchases`);
+        } catch (err) {
+          alert(`That file could not be imported.\n\n${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          if (restore.current) restore.current.value = '';
+        }
+      })();
     };
     reader.readAsText(file);
   };
@@ -71,8 +74,8 @@ export function Settings() {
           <div class="btn-row" style="margin-top:16px">
             <button
               class="primary"
-              onClick={() => {
-                updateSettings({
+              onClick={() => void act(async () => {
+                await updateSettings({
                   currencySymbol: symbol.current?.value || '',
                   currencyCode: code.current?.value || '',
                   locale: locale.current?.value || 'en-US',
@@ -81,11 +84,11 @@ export function Settings() {
                 });
                 /* Switching it back on should catch up straight away rather
                    than waiting for the next time the app is opened. */
-                const added = catchUp();
+                const added = await catchUp();
                 toast(added.total
                   ? `Settings saved · ${plural(added.total, 'entry', 'entries')} added`
                   : 'Settings saved');
-              }}
+              })}
             >Save settings</button>
           </div>
         </SheetBody>
@@ -100,8 +103,8 @@ export function Settings() {
         </SheetHead>
         <SheetBody>
           <p class="muted" style="margin-top:0">
-            The database lives inside this browser. Clearing browsing data or moving to another
-            machine will lose it, so download a copy regularly.
+            Your records are kept on the server, under your account. Download a backup now and
+            then — it is also how records from the offline version are brought in.
           </p>
           <div class="btn-row">
             <button class="primary"
@@ -112,11 +115,11 @@ export function Settings() {
             >Download backup (.json)</button>
             <button
               onClick={() => {
-                const ok = confirm('Restoring replaces everything currently stored.\n\n'
+                const ok = confirm('Importing replaces everything currently stored.\n\n'
                   + 'Download a backup first if you are unsure. Continue?');
                 if (ok) restore.current?.click();
               }}
-            >Restore from .json</button>
+            >Import backup (.json)</button>
             <input
               ref={restore} type="file" accept=".json,application/json"
               style="display:none" onChange={onRestoreFile}
@@ -135,8 +138,7 @@ export function Settings() {
                 + 'This cannot be undone. Download a backup first if you are unsure.');
               if (!first) return;
               if (!confirm('Last chance — really erase everything?')) return;
-              clearAll();
-              toast('All data erased');
+              void act(async () => { await clearAll(); toast('All data erased'); });
             }}
           >Erase all data</button>
         </SheetBody>

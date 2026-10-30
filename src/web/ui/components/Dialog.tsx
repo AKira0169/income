@@ -9,10 +9,12 @@
    come above the fields and the fields have to sit inside the scrolling
    .dialog-body. The reading is the same function either way. */
 
-import { useLayoutEffect, useRef } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { AppState } from '../../../domain/types.ts';
 import type { FieldSpec } from '../fields.ts';
+import { failureText } from '../feedback.ts';
 import { FormGrid, readForm } from './Form.tsx';
+import { toast } from './Toast.tsx';
 import type { Editable, FormData } from './Form.tsx';
 
 export interface EditorProps {
@@ -22,7 +24,7 @@ export interface EditorProps {
       upsert() inserts rather than updating. */
   record: Editable;
   state: AppState;
-  onSave: (data: FormData) => void;
+  onSave: (data: FormData) => void | Promise<unknown>;
   onInvalid?: () => void;
   /** Any control changing — for a form whose shape depends on its own answers. */
   onChange?: (e: Event) => void;
@@ -42,6 +44,7 @@ export function Editor({
   title, fields, record, state, onSave, onInvalid, onChange, onInput, note, saveLabel, onClose
 }: EditorProps) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [saving, setSaving] = useState(false);
 
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -60,12 +63,17 @@ export function Editor({
         onInput={onInput}
         onSubmit={(e: Event) => {
           e.preventDefault();
+          if (saving) return;
           const data = readForm(e.currentTarget as HTMLFormElement, fields);
           if (!data) { onInvalid?.(); return; }
-          // Editing keeps the record's id; an "add" editor was handed a literal
-          // without one, so this leaves the field undefined.
-          onSave({ ...data, id });
-          onClose();
+          /* Closed only once the server has it. A refusal keeps the dialog open
+             with everything still typed in, and says why. Editing keeps the
+             record's id; an "add" editor was handed a literal without one, so
+             this leaves the field undefined. */
+          setSaving(true);
+          void Promise.resolve()
+            .then(() => onSave({ ...data, id }))
+            .then(() => onClose(), (err: unknown) => { setSaving(false); toast(failureText(err)); });
         }}
       >
         <div class="dialog-head">{title}</div>
@@ -75,7 +83,9 @@ export function Editor({
         </div>
         <div class="dialog-foot">
           <button type="button" onClick={onClose}>Cancel</button>
-          <button class="primary" type="submit">{saveLabel ?? 'Save changes'}</button>
+          <button class="primary" type="submit" disabled={saving}>
+            {saving ? 'Saving…' : (saveLabel ?? 'Save changes')}
+          </button>
         </div>
       </form>
     </dialog>

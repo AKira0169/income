@@ -16,10 +16,13 @@
    form.elements is the shortest path from "what is on screen" to "what to
    save", and there is no second copy of the values to fall out of step. */
 
+import { useState } from 'preact/hooks';
 import { parseMoney } from '../../../domain/money.ts';
 import type { AppState } from '../../../domain/types.ts';
 import type { FieldSpec } from '../fields.ts';
+import { failureText } from '../feedback.ts';
 import { Field } from './Field.tsx';
+import { toast } from './Toast.tsx';
 
 export type FormData = Record<string, unknown>;
 
@@ -83,7 +86,7 @@ export function FormGrid({ fields, record, state }: FormGridProps) {
 
 export interface FormProps extends FormGridProps {
   /** Given the read values. Not called when a required field is empty. */
-  onSubmit: (data: FormData) => void;
+  onSubmit: (data: FormData) => void | Promise<unknown>;
   /** Said when a required field is empty. */
   onInvalid?: () => void;
   /** Any control changing. For a form whose shape depends on one of its own
@@ -92,18 +95,28 @@ export interface FormProps extends FormGridProps {
 }
 
 export function Form({ fields, record, state, onSubmit, onInvalid, onChange, children }: FormProps) {
+  /* A save is a request now. While it is out, the buttons are disabled so a
+     double click cannot send it twice; if it fails the form stays as typed and
+     says why, rather than clearing as if it had worked. */
+  const [saving, setSaving] = useState(false);
   return (
     <form
       onChange={onChange}
+      aria-busy={saving ? 'true' : undefined}
       onSubmit={(e: Event) => {
         e.preventDefault();
+        if (saving) return;
         const data = readForm(e.currentTarget as HTMLFormElement, fields);
         if (!data) { onInvalid?.(); return; }
-        onSubmit(data);
+        setSaving(true);
+        void Promise.resolve()
+          .then(() => onSubmit(data))
+          .catch((err: unknown) => toast(failureText(err)))
+          .finally(() => setSaving(false));
       }}
     >
       <FormGrid fields={fields} record={record} state={state} />
-      {children}
+      <fieldset class="plain-fieldset" disabled={saving}>{children}</fieldset>
     </form>
   );
 }

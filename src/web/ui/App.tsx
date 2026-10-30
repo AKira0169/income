@@ -2,10 +2,10 @@
 
 import { useEffect } from 'preact/hooks';
 import { plural } from '../../domain/money.ts';
-import { app, bootError, booting, storageOk } from '../state/app.ts';
+import { app, bootError, booting, reachable } from '../state/app.ts';
 import { tab as routeTab } from '../state/route.ts';
 import type { TabId } from '../state/route.ts';
-import type { BootOutcome } from '../state/app.ts';
+import type { BootOutcome } from '../state/boot.ts';
 import { Toast, toast } from './components/Toast.tsx';
 import { Topbar } from './Topbar.tsx';
 
@@ -40,13 +40,13 @@ function Splash({ title, lines }: { title: string; lines: readonly string[] }) {
   );
 }
 
-function StorageNotice() {
-  if (storageOk.value) return null;
+function OfflineNotice() {
+  if (reachable.value) return null;
   return (
     <div class="notice danger" style="margin-bottom:24px">
-      <strong>Nothing is being saved. </strong>
-      This browser is blocking local storage, so anything you enter will be lost when you close
-      the tab. Download a copy of your data from Settings before you leave.
+      <strong>Can't reach the server. </strong>
+      Your last change may not have been saved. Check your connection — the app carries on as soon
+      as the server answers again.
     </div>
   );
 }
@@ -54,14 +54,12 @@ function StorageNotice() {
 export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
   const tabId = routeTab.value;
 
-  /* Announced once the database is open, not on every render. A quiet catch-up
+  /* Announced once the data has loaded, not on every render. A quiet catch-up
      that moved a balance is alarming when it is not explained. */
   useEffect(() => {
     void outcome.then((result) => {
       if (!result) return;
-      if (result.migrated) {
-        toast('Moved your existing records into the database');
-      } else if (result.added.total) {
+      if (result.added.total) {
         const parts: string[] = [];
         if (result.added.income) parts.push(plural(result.added.income, 'income entry', 'income entries'));
         if (result.added.bills) parts.push(plural(result.added.bills, 'bill'));
@@ -76,10 +74,10 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
   useEffect(() => { window.scrollTo(0, 0); }, [tabId]);
 
   if (bootError.value) {
-    return <Splash title="Could not start" lines={[bootError.value, 'Try opening this file in Chrome or Edge.']} />;
+    return <Splash title="Could not start" lines={[bootError.value, 'Reload the page to try again.']} />;
   }
   if (booting.value) {
-    return <Splash title="Income Tracker" lines={['Opening your database…']} />;
+    return <Splash title="Income Tracker" lines={['Loading your data…']} />;
   }
 
   // Read so the frame redraws with the data, not only with the route.
@@ -91,7 +89,7 @@ export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
     <>
       <Topbar />
       <main>
-        <StorageNotice />
+        <OfflineNotice />
         <Tab key={tabId} />
       </main>
       <Toast />

@@ -12,6 +12,23 @@ import { toast } from './components/Toast.tsx';
 
 export { toast } from './components/Toast.tsx';
 
+/** What a failed write says. The server's messages are already written for a person. */
+export const failureText = (err: unknown): string =>
+  `Not saved — ${err instanceof Error ? err.message : String(err)}`;
+
+/* For a write started from a plain button rather than a form: a failure becomes
+   a toast instead of an unhandled rejection, and the caller learns whether it
+   worked. Forms and editors do the same for themselves. */
+export async function act(work: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await work();
+    return true;
+  } catch (err) {
+    toast(failureText(err));
+    return false;
+  }
+}
+
 /* A Blob URL and a click on a link the user never sees. There is no server
    here, so this is the only way a file leaves the page. */
 export function download(data: BlobPart, filename: string, mime: string): void {

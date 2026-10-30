@@ -27,7 +27,7 @@ import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { AddSection, Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { EmptyRow, listRows, RowActions, Table } from '../components/Table.tsx';
 import { toast } from '../components/Toast.tsx';
-import { confirmDelete, followDate } from '../feedback.ts';
+import { act, confirmDelete, followDate } from '../feedback.ts';
 import { FIELDS, savingsFields } from '../fields.ts';
 import type { FieldSpec } from '../fields.ts';
 import type { FormData } from '../components/Form.tsx';
@@ -103,9 +103,9 @@ export function Accounts() {
   const add = useDirection(accounts.length > 1 ? 'transfer' : 'in');
   const edit = useDirection(editingTx?.direction ?? 'in');
 
-  const saveMovement = (data: FormData): void => {
+  const saveMovement = async (data: FormData): Promise<void> => {
     if (data.direction !== 'transfer') data.fromAccountId = '';
-    upsert('savingsTx', data);
+    await upsert('savingsTx', data);
   };
 
   /* Both debt dialogs need somewhere for the money to come from or go to, and
@@ -150,7 +150,7 @@ export function Accounts() {
                 const ok = confirm(
                   `Delete "${a.name}" and all of its movements? This cannot be undone.\n\n`
                   + 'Income, bills and purchases linked to it are kept, but stop counting towards any balance.');
-                if (ok) remove('accounts', a.id);
+                if (ok) void act(() => remove('accounts', a.id));
               }}
             >Delete</button>
           </div>
@@ -201,7 +201,7 @@ export function Accounts() {
                   `Delete "${d.account.name}" and every movement against it? This cannot be undone.\n\n`
                   + 'The money you borrowed stays in whichever account it landed in, so your balances '
                   + 'will read higher by what you still owe.');
-                if (ok) remove('accounts', d.account.id);
+                if (ok) void act(() => remove('accounts', d.account.id));
               }}
             >Delete</button>
           </div>
@@ -241,7 +241,7 @@ export function Accounts() {
         <td class="truncate muted" title={t.notes || ''}>{t.notes || ''}</td>
         <RowActions
           onEdit={() => { edit.setDirection(t.direction); setEditingTx(t); }}
-          onDelete={() => { if (confirmDelete('movement')) remove('savingsTx', t.id); }}
+          onDelete={() => { if (confirmDelete('movement')) void act(() => remove('savingsTx', t.id)); }}
         />
       </tr>
     );
@@ -323,12 +323,12 @@ export function Accounts() {
           forceOpen={!txs.length}
           onChange={add.onChange}
           onInvalid={() => toast('Fill in the required fields')}
-          onSubmit={(data) => {
+          onSubmit={async (data) => {
             if (data.direction === 'transfer' && data.fromAccountId === data.accountId) {
               toast('A transfer needs two different accounts');
               return;
             }
-            saveMovement(data);
+            await saveMovement(data);
             followDate(String(data.date ?? ''), movementSaved(data.direction));
           }}
         />
@@ -378,8 +378,8 @@ export function Accounts() {
               </p>
             </div>
           }
-          onSave={(data) => {
-            borrow({
+          onSave={async (data) => {
+            await borrow({
               debtId: borrowing === 'new' ? undefined : borrowing.account.id,
               name: borrowing === 'new' ? String(data['name'] ?? '') : borrowing.account.name,
               amount: data['amount'] as Cents,
@@ -426,9 +426,9 @@ export function Accounts() {
               </p>
             </div>
           }
-          onSave={(data) => {
+          onSave={async (data) => {
             const amount = data['amount'] as Cents;
-            repay(repaying.account.id, {
+            await repay(repaying.account.id, {
               amount,
               date: String(data['date'] ?? ''),
               fromAccountId: String(data['fromAccountId'] ?? ''),
@@ -485,8 +485,8 @@ export function Accounts() {
               ) : null}
             </div>
           }
-          onSave={(data) => {
-            const corrected = reconcile(
+          onSave={async (data) => {
+            const corrected = await reconcile(
               reconciling.id, data['actual'] as Cents, String(data['date'] ?? '')
             );
             toast(corrected
@@ -504,7 +504,7 @@ export function Accounts() {
           record={editing === 'new' ? BLANK_ACCOUNT : editing}
           state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { upsert('accounts', data); toast('Saved'); }}
+          onSave={async (data) => { await upsert('accounts', data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -517,7 +517,7 @@ export function Accounts() {
           state={state}
           onChange={edit.onChange}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { saveMovement(data); toast('Saved'); }}
+          onSave={async (data) => { await saveMovement(data); toast('Saved'); }}
           onClose={() => setEditingTx(null)}
         />
       ) : null}

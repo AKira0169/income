@@ -80,13 +80,13 @@ export function RecurringSection<T extends { active: boolean; frequency?: never 
               fields={fields}
               state={state}
               onInvalid={() => toast('Fill in the required fields')}
-              onSubmit={(data) => {
+              onSubmit={async (data) => {
                 /* The month on screen is where this commitment starts; nothing
                    is ever generated before it, and the sweep is reset so
                    changing the schedule refills from the anchor. */
-                const template = upsert(collection, { ...data, anchor: period, generatedThrough: '' });
-                const linked = linkGeneratedTo(collection, template);
-                const added = catchUp();
+                const template = await upsert(collection, { ...data, anchor: period, generatedThrough: '' });
+                const linked = await linkGeneratedTo(collection, template);
+                const added = await catchUp();
                 setGeneration(generation + 1);
                 toast(templateToast(saved, added.total, linked));
               }}

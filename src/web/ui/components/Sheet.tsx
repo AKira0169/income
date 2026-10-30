@@ -28,7 +28,7 @@ export interface AddSectionProps {
   addLabel: string;
   fields: readonly FieldSpec[];
   state: AppState;
-  onSubmit: (data: FormData) => void;
+  onSubmit: (data: FormData) => void | Promise<unknown>;
   onInvalid?: () => void;
   /** Any control changing — for a form whose shape depends on its own answers. */
   onChange?: (e: Event) => void;
@@ -65,7 +65,7 @@ export function AddSection({
         <div class="disclosure-body">
           <Form
             key={generation} fields={fields} state={state} onInvalid={onInvalid} onChange={onChange}
-            onSubmit={(data) => { onSubmit(data); setGeneration(generation + 1); }}
+            onSubmit={async (data) => { await onSubmit(data); setGeneration((g) => g + 1); }}
           >
             <div class="btn-row" style="margin-top:16px">
               <button class="primary" type="submit">{addLabel}</button>

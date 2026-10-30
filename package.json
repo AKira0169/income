@@ -9,7 +9,7 @@
     "build": "node build.mjs",
     "dev": "node dev.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.server.json",
-    "test": "pnpm typecheck && node test/domain.ts && node test/roundtrip.ts && node test/export.ts && node test/build.ts && node test/currency.ts && node test/diff.ts",
+    "test": "pnpm typecheck && node test/domain.ts && node test/roundtrip.ts && node test/export.ts && node test/build.ts && node test/currency.ts && node test/diff.ts && node test/web-state.ts && node test/await-actions.ts",
     "test:browser": "pnpm build && node test/browser.mjs",
     "test:full": "pnpm test && pnpm test:browser",
     "db:test:up": "docker compose -f deploy/compose.test.yaml up -d --wait",

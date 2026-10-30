@@ -26,7 +26,7 @@ import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { EmptyRow, listRows, RowActions, Table } from '../components/Table.tsx';
 import { toast } from '../components/Toast.tsx';
-import { confirmDelete } from '../feedback.ts';
+import { act, confirmDelete } from '../feedback.ts';
 import { FIELDS } from '../fields.ts';
 
 const COLUMNS = 8;
@@ -112,7 +112,7 @@ export function Bills() {
           <InlineNumber
             value={b.amount ? toMajor(b.amount).toFixed(2) : ''}
             label={`${b.name} amount`}
-            onCommit={(raw) => upsert('bills', { id: b.id, amount: parseMoney(raw) })}
+            onCommit={(raw) => void act(() => upsert('bills', { id: b.id, amount: parseMoney(raw) }))}
           />
         </td>
         <td class="num">
@@ -123,7 +123,7 @@ export function Bills() {
                 label={`${b.name} units used`}
                 width="72px"
                 placeholder={unit}
-                onCommit={(raw) => upsert('bills', { id: b.id, units: raw.trim() === '' ? null : Number(raw) })}
+                onCommit={(raw) => void act(() => upsert('bills', { id: b.id, units: raw.trim() === '' ? null : Number(raw) }))}
               />
             )
             : <span class="faint">—</span>}
@@ -137,14 +137,14 @@ export function Bills() {
         <td class="actions">
           <button
             class="quiet small"
-            onClick={() => upsert('bills', b.status === 'paid'
+            onClick={() => void act(() => upsert('bills', b.status === 'paid'
               ? { id: b.id, paidDate: '' }
-              : { id: b.id, paidDate: todayISO() })}
+              : { id: b.id, paidDate: todayISO() }))}
           >{b.status === 'paid' ? 'Unpay' : 'Mark paid'}</button>
           <button class="quiet small" onClick={() => setEditing(b)}>Edit</button>
           <button
             class="quiet small danger"
-            onClick={() => { if (confirmDelete('bill')) remove('bills', b.id); }}
+            onClick={() => { if (confirmDelete('bill')) void act(() => remove('bills', b.id)); }}
           >Delete</button>
         </td>
       </tr>
@@ -168,7 +168,7 @@ export function Bills() {
       </td>
       <RowActions
         onEdit={() => setEditingTemplate(t)}
-        onDelete={() => { if (confirmDelete('recurring bill')) remove('billTemplates', t.id); }}
+        onDelete={() => { if (confirmDelete('recurring bill')) void act(() => remove('billTemplates', t.id)); }}
       />
     </tr>
   );
@@ -183,10 +183,10 @@ export function Bills() {
           <div class="spacer"><ScopeToggle allTime={allTime} onChange={setAllTime} /></div>
           {!allTime ? (
             <button
-              onClick={() => {
-                const made = generateBills(period);
+              onClick={() => void act(async () => {
+                const made = await generateBills(period);
                 toast(made ? `Added ${plural(made, 'bill')}` : 'Already up to date');
-              }}
+              })}
             >Generate from recurring</button>
           ) : null}
           <button class="primary" onClick={() => setEditing('new')}>Add bill</button>
@@ -238,7 +238,7 @@ export function Bills() {
           onInvalid={() => toast('Fill in the required fields')}
           /* Period and status are derived from the dates inside upsert(), so
              neither is passed in and neither can be forgotten. */
-          onSave={(data) => { upsert('bills', data); toast('Saved'); }}
+          onSave={async (data) => { await upsert('bills', data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -247,8 +247,8 @@ export function Bills() {
         <Editor
           title="Edit recurring bill" fields={FIELDS.billTemplate} record={editingTemplate} state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => {
-            const linked = linkGeneratedTo('billTemplates', upsert('billTemplates', data));
+          onSave={async (data) => {
+            const linked = await linkGeneratedTo('billTemplates', await upsert('billTemplates', data));
             toast(linked
               ? `Saved · ${plural(linked, 'past bill')} linked to ${accountName(app.peek(), String(data.accountId ?? ''))}`
               : 'Saved');

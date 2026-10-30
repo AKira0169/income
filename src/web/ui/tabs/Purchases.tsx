@@ -14,7 +14,7 @@ import { Editor } from '../components/Dialog.tsx';
 import { ScopeToggle } from '../components/ScopeToggle.tsx';
 import { AddSection, Sheet, SheetBody, SheetHead } from '../components/Sheet.tsx';
 import { AccountCell, EmptyRow, listRows, RowActions, Table } from '../components/Table.tsx';
-import { confirmDelete, followDate } from '../feedback.ts';
+import { act, confirmDelete, followDate } from '../feedback.ts';
 import { toast } from '../components/Toast.tsx';
 import { FIELDS } from '../fields.ts';
 
@@ -52,7 +52,7 @@ export function Purchases() {
       <td class="truncate muted" title={r.notes || ''}>{r.notes || ''}</td>
       <RowActions
         onEdit={() => setEditing(r)}
-        onDelete={() => { if (confirmDelete('purchase')) remove('purchases', r.id); }}
+        onDelete={() => { if (confirmDelete('purchase')) void act(() => remove('purchases', r.id)); }}
       />
     </tr>
   );
@@ -66,8 +66,8 @@ export function Purchases() {
         state={state}
         forceOpen={!records.length}
         onInvalid={() => toast('Fill in the required fields')}
-        onSubmit={(data) => {
-          upsert('purchases', data);
+        onSubmit={async (data) => {
+          await upsert('purchases', data);
           followDate(String(data.date ?? ''), 'Purchase added');
         }}
       />
@@ -101,7 +101,7 @@ export function Purchases() {
           record={editing}
           state={state}
           onInvalid={() => toast('Fill in the required fields')}
-          onSave={(data) => { upsert('purchases', data); toast('Saved'); }}
+          onSave={async (data) => { await upsert('purchases', data); toast('Saved'); }}
           onClose={() => setEditing(null)}
         />
       ) : null}

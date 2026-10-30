@@ -611,3 +611,10 @@ textarea.sql { font-family: var(--font-mono); font-size: 13px; min-height: 76px;
     print-color-adjust: exact; -webkit-print-color-adjust: exact;
   }
 }
+/* A write is on its way. Buttons that would start another one look and act
+   inert until it answers; forms and dialogs also disable their own submit. */
+body.is-busy main button,
+body.is-busy dialog button[type="submit"] { pointer-events: none; opacity: .6; }
+
+/* Wraps a form's buttons so one `disabled` covers them all; draws nothing. */
+.plain-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
