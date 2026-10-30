@@ -11,8 +11,6 @@ import { fourDigit, parse } from '../src/domain/date-parse.ts';
 import { exportJSON, importJSON } from '../src/domain/backup.ts';
 import { blankState, migrate, remove, updateSettings, upsert } from '../src/domain/records.ts';
 import { catchUp, linkGeneratedTo } from '../src/domain/recurring.ts';
-import { attachPersistence, app } from '../src/state/app.ts';
-import { upsert as commitUpsert } from '../src/state/actions.ts';
 import {
   accountBalance, accountsHeld, billCashDate, cashOnHand, debtOwed, debtSummaries,
   defaultSavingsAccount, lastAccountFor, summary, totalSavings
@@ -146,27 +144,6 @@ check('back-linking finds the generated bills', linked.linked > 0, true);
 check('and replaces the bills array', linked.state.bills === swept.state.bills, false);
 check('linking with nothing to link keeps the same state',
   linkGeneratedTo(linked.state, 'billTemplates', { id: 't1', accountId: 'a1' }).state === linked.state, true);
-
-/* ---------------- one write per turn, not one per call ---------------- */
-
-/* Every save rewrites the whole database. A run of writes inside one handler
-   used to cost one rewrite each; they are coalesced into a microtask now. */
-console.log('\nsaves are batched:');
-let saves = 0;
-attachPersistence({ save: () => { saves++; return true; } });
-
-commitUpsert('accounts', { id: 'a1', name: 'Card', type: 'Current Account', opening: 0, target: 0, notes: '' });
-commitUpsert('purchases', { id: 'p1', date: '2026-07-01', item: 'Tea', category: 'Groceries', amount: 500, accountId: 'a1', method: 'Cash', notes: '' });
-commitUpsert('purchases', { id: 'p2', date: '2026-07-02', item: 'Bread', category: 'Groceries', amount: 300, accountId: 'a1', method: 'Cash', notes: '' });
-check('nothing has been written yet, mid-turn', saves, 0);
-check('but the state is already correct', app.peek().purchases.length, 2);
-
-await Promise.resolve();
-check('three writes cost one save', saves, 1);
-
-commitUpsert('purchases', { id: 'p3', date: '2026-07-03', item: 'Milk', category: 'Groceries', amount: 200, accountId: 'a1', method: 'Cash', notes: '' });
-await Promise.resolve();
-check('a later turn saves again', saves, 2);
 
 /* ---------------- goals are just another collection ---------------- */
 

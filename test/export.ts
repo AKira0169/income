@@ -15,11 +15,10 @@ import {
 import {
   goldGramFromSpot, goldHoldings, goldInvested, goldPricePerGram, goldSummary, goldValue
 } from '../src/domain/gold.ts';
-import { app, snapshot } from '../src/state/app.ts';
 import {
-  catchUp, generateBills, generateIncome, importJSON, recordGoldPrice, remove,
+  app, snapshot, catchUp, generateBills, generateIncome, importJSON, recordGoldPrice, remove,
   replaceState, updateSettings, upsert
-} from '../src/state/actions.ts';
+} from './support/store.ts';
 import { build, filename } from '../src/workbook/build.ts';
 import type { AppState, Bill, CollectionKey, Frequency, Period } from '../src/domain/types.ts';
 

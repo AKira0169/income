@@ -14,7 +14,6 @@ import { dirname, join } from 'node:path';
 
 export const here = dirname(fileURLToPath(import.meta.url));
 const src = (name) => readFileSync(join(here, 'src', name), 'utf8');
-const vendor = (name) => join(here, 'vendor', name);
 
 /* A literal </script> anywhere in the bundle would close the tag early. Applied
    last, so it also covers anything minification moved into a string. */
@@ -27,14 +26,6 @@ export const buildStamp = () => new Date().toLocaleString('en-GB', {
   day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
 }).replace(',', ' ·');
 
-/* The wasm binary is base64'd into the page rather than bundled: it is most of
-   the file's weight and routing a megabyte through the bundler's loaders buys
-   nothing. Encoding a megabyte is slow enough to notice on every keystroke in
-   watch mode, so it is done once and kept. */
-/** @type {string | null} */
-let wasmB64Cache = null;
-const wasmB64 = () => (wasmB64Cache ??= readFileSync(vendor('sql-wasm.wasm')).toString('base64'));
-
 /** Shared by `node build.mjs` and by dev's watch context, so the two cannot
     drift into bundling the app differently.
 
@@ -46,7 +37,7 @@ const wasmB64 = () => (wasmB64Cache ??= readFileSync(vendor('sql-wasm.wasm')).to
     @returns {import('esbuild').BuildOptions & { write: false }} */
 export function bundleOptions() {
   return {
-    entryPoints: [join(here, 'src', 'main.tsx')],
+    entryPoints: [join(here, 'src', 'web', 'main.tsx')],
     bundle: true,
     format: 'iife',
     // esbuild does not read tsconfig's `target`; the app is Chrome/Edge only.
@@ -72,11 +63,7 @@ export function bundleOptions() {
     `extra` is appended inside the same <script>; dev uses it for live reload. */
 export function page(bundled, stamp = buildStamp(), extra = '') {
   const js = [
-    '/* ---- sql.js 1.13.0 (MIT) — SQLite compiled to WebAssembly ---- */',
-    guard(readFileSync(vendor('sql-wasm.js'), 'utf8')),
     `globalThis.__BUILD__ = ${JSON.stringify(stamp)};`,
-    '/* ---- sqlite wasm binary (base64) ---- */',
-    `globalThis.__SQL_WASM_B64__ = "${wasmB64()}";`,
     '/* ---- application bundle (built from src/*.ts) ---- */',
     guard(bundled),
     extra
@@ -101,5 +88,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   console.log(`built ${out} (${mb(Buffer.byteLength(html, 'utf8'))} MB, nothing to install)`);
   console.log(`  stamped: ${stamp} — shown beside the title, so a stale tab is obvious`);
   console.log(`  app bundle: ${(Buffer.byteLength(bundled, 'utf8') / 1024).toFixed(0)} KB minified`);
-  console.log(`  sqlite wasm: ${mb(wasmB64().length)} MB of that, base64-encoded`);
 }
