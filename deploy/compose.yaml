@@ -14,9 +14,29 @@ x-kratos-env: &kratos-env
   DSN: postgres://kratos:${KRATOS_DB_PASSWORD:?set KRATOS_DB_PASSWORD in deploy/.env}@postgres:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
 
 services:
+  # Refuses to start the stack on settings that would fail later, and says
+  # which and why (deploy/check-env.sh). Runs for a second, then exits.
+  config-check:
+    image: postgres:17.11-alpine
+    restart: "no"
+    entrypoint: ["/bin/sh", "/check-env.sh"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      KRATOS_DB_PASSWORD: ${KRATOS_DB_PASSWORD}
+      KRATOS_COOKIE_SECRET: ${KRATOS_COOKIE_SECRET}
+      KRATOS_CIPHER_SECRET: ${KRATOS_CIPHER_SECRET}
+      SMTP_URI: ${SMTP_URI}
+    volumes:
+      - ./check-env.sh:/check-env.sh:ro
+
   postgres:
     image: postgres:17.11-alpine
     restart: unless-stopped
+    depends_on:
+      config-check:
+        condition: service_completed_successfully
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}

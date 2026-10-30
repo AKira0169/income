@@ -12,6 +12,7 @@ inside the stack.
 | `caddy` | The stack's one entrypoint, plain HTTP on port 80, no ports published. Serves the web app, proxies `/auth/*` to Kratos and `/api/*` to the api. Built with the `caddy-ratelimit` plugin: 20 sign-in form submissions a minute per visitor IP (read from Traefik's `X-Forwarded-For`), 600 api requests. Sends HSTS, a strict CSP and no-framing headers. |
 | `api` | Node 26, Hono. Applies database migrations on start, then serves. Fetches the gold price once a day. |
 | `kratos` | Ory Kratos v1.3.1: accounts, passwords, 2FA, email verification and recovery. Its admin API is never exposed. |
+| `config-check` | Checks the environment settings before anything else starts, then exits. A failed deploy that stops here names the bad setting in its log. |
 | `kratos-migrate` | Runs Kratos's own migrations once, then exits. |
 | `postgres` | Postgres 17, two databases: `app` and `kratos`. Data in the `pgdata` volume. |
 
@@ -31,6 +32,11 @@ inside the stack.
    openssl rand -hex 16   # KRATOS_CIPHER_SECRET — must be exactly 32 characters
    ```
 
+   Use only those generated values: **no symbols**. The passwords go inside
+   `postgres://` connection URLs, and Compose deletes anything after a `$`.
+   The cipher secret must be exactly 32 characters. If a value is wrong, the
+   `config-check` service stops the deploy and its log says which and why.
+
    `APP_DOMAIN` is the bare domain (`money.example.com`, no `https://`).
    `SMTP_URI` / `SMTP_FROM` must be a real mail provider: verification and
    recovery codes are sent by email. Dokploy writes these to a `.env` beside
@@ -42,7 +48,11 @@ inside the stack.
 
    Do not add domains for `api` or `kratos`: Caddy reaches them on the
    stack's own network, and Kratos's admin port must stay unreachable.
-5. **Deploy.** Press **Deploy** and follow the log. The first build takes a
+5. **Deploy.** Press **Deploy** and follow the log. If a deploy fails at
+   `config-check` or `kratos-migrate`, the reason is in that service's log
+   (**Logs** tab, or `docker logs <app>-config-check-1`). After changing a
+   password, delete the `pgdata` volume before redeploying if the database
+   holds nothing yet: Postgres keeps the passwords it was first started with. The first build takes a
    few minutes (the web bundle and Caddy's rate-limit plugin are compiled).
 6. **Check.** `https://money.example.com` shows the sign-in screen;
    `curl https://money.example.com/auth/health/ready` prints `{"status":"ok"}`.

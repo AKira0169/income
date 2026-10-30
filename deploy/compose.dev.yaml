@@ -21,6 +21,11 @@ services:
     volumes:
       - ../dist/web:/srv:ro
 
+  # The dev values are short and mail goes to Mailpit, on purpose.
+  config-check:
+    environment:
+      DEV: "1"
+
   kratos:
     depends_on:
       mailpit:
