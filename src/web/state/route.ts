@@ -1,14 +1,12 @@
-/* state/route.ts — which tab and which month, kept in the address bar.
+/* state/route.ts — which screen, which tab and which month, kept in the path.
 
-   `#/bills/2026-07`. Putting it in the hash rather than in a variable is what
-   makes reload land where you were and makes back and forward step through the
-   months you looked at — on a file:// page, where the hash is the only part of
-   the URL that can be changed without a navigation.
+   `/bills/2026-07`, `/login`, `/settings/security`. Real paths rather than the
+   hash the file:// build needed: Caddy answers every path with index.html
+   (try_files), so a reload lands where you were and a month of a tab can be
+   bookmarked. Back and forward arrive as popstate.
 
-   Signals are written straight away rather than waiting for the hashchange
-   event, which fires a task later: a click must take effect in the same turn it
-   happened. The hash is then brought into line, and the hashchange listener is
-   what makes the back button work. Both directions land in `apply`. */
+   Signals are written straight away rather than waiting for any event: a click
+   must take effect in the same turn it happened. */
 
 import { signal } from '@preact/signals';
 import { currentPeriod } from '../../domain/period.ts';
@@ -20,40 +18,83 @@ export const TAB_IDS: readonly TabId[] = [
   'dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings'
 ];
 
+export type AuthRoute = 'login' | 'registration' | 'recovery' | 'verification' | 'settings/security' | 'error';
+
+const AUTH_ROUTES: readonly AuthRoute[] = [
+  'login', 'registration', 'recovery', 'verification', 'settings/security', 'error'
+];
+
 const isTab = (value: string): value is TabId => (TAB_IDS as readonly string[]).includes(value);
 const isPeriod = (value: string): boolean => /^\d{4}-\d{2}$/.test(value);
 
 export const tab = signal<TabId>('dashboard');
 export const period = signal<Period>(currentPeriod());
+/** Set while a sign-in screen is showing; null for the app itself. */
+export const authRoute = signal<AuthRoute | null>(null);
+/** The query string, which the sign-in screens read (?flow=…, ?aal=…). */
+export const search = signal('');
 
-const hashFor = (t: TabId, p: Period): string => `#/${t}/${p}`;
+export interface ParsedPath {
+  auth: AuthRoute | null;
+  tab: TabId | null;
+  period: Period | null;
+}
 
-/** Adopt a hash. Unreadable parts keep whatever is on screen, so a mistyped
-    URL moves what it can rather than throwing you back to the dashboard. */
-function apply(hash: string): void {
-  const [rawTab = '', rawPeriod = ''] = hash.replace(/^#\/?/, '').split('/');
-  if (isTab(rawTab)) tab.value = rawTab;
-  if (isPeriod(rawPeriod)) period.value = rawPeriod;
+/** Auth screens first: /settings/security must not read as the Settings tab. */
+export function parsePath(pathname: string): ParsedPath {
+  const clean = pathname.replace(/^\/+|\/+$/g, '');
+  if ((AUTH_ROUTES as readonly string[]).includes(clean)) {
+    return { auth: clean as AuthRoute, tab: null, period: null };
+  }
+  const [rawTab = '', rawPeriod = ''] = clean.split('/');
+  return {
+    auth: null,
+    tab: isTab(rawTab) ? rawTab : null,
+    period: isTab(rawTab) && isPeriod(rawPeriod) ? rawPeriod : null
+  };
+}
+
+export const pathFor = (t: TabId, p: Period): string => `/${t}/${p}`;
+
+/** Unreadable parts keep whatever is on screen. */
+function apply(pathname: string, query: string): void {
+  const parsed = parsePath(pathname);
+  authRoute.value = parsed.auth;
+  search.value = query;
+  if (parsed.tab) tab.value = parsed.tab;
+  if (parsed.period) period.value = parsed.period;
 }
 
 export function go(next: { tab?: TabId; period?: Period }): void {
   if (next.tab) tab.value = next.tab;
   if (next.period) period.value = next.period;
-  const target = hashFor(tab.peek(), period.peek());
-  // Assigning an unchanged hash adds nothing to the history, but checking first
-  // keeps the intent obvious.
-  if (globalThis.location?.hash !== target) globalThis.location.hash = target;
+  authRoute.value = null;
+  search.value = '';
+  const target = pathFor(tab.peek(), period.peek());
+  if (globalThis.location?.pathname !== target || globalThis.location?.search) {
+    history.pushState(null, '', target);
+  }
 }
 
 export const goTab = (id: TabId): void => go({ tab: id });
 export const goPeriod = (p: Period): void => go({ period: p });
 
-/** Called once at start-up. Opening the file with no hash writes one, so the
-    first tab change is not the entry the back button returns to. */
+/** Any address inside the app, including the sign-in screens. */
+export function navigate(to: string, options: { replace?: boolean } = {}): void {
+  const url = new URL(to, location.origin);
+  const target = url.pathname + url.search;
+  if (options.replace) history.replaceState(null, '', target);
+  else history.pushState(null, '', target);
+  apply(url.pathname, url.search);
+}
+
+/** Called once at start-up. A bare / is written out as the tab and month it
+    shows, so the first tab change is not the entry the back button returns to. */
 export function startRouting(): void {
-  const initial = globalThis.location?.hash ?? '';
-  if (initial) apply(initial);
-  window.addEventListener('hashchange', () => apply(globalThis.location.hash));
-  const target = hashFor(tab.peek(), period.peek());
-  if (globalThis.location.hash !== target) globalThis.location.replace(target);
+  apply(location.pathname, location.search);
+  window.addEventListener('popstate', () => apply(location.pathname, location.search));
+  if (!authRoute.peek()) {
+    const target = pathFor(tab.peek(), period.peek());
+    if (location.pathname !== target) history.replaceState(null, '', target);
+  }
 }

@@ -8,7 +8,8 @@ import { useState } from 'preact/hooks';
 import { currentPeriod, periodLabel, shiftPeriod } from '../../domain/period.ts';
 import { activePeriods } from '../../domain/selectors.ts';
 import { app } from '../state/app.ts';
-import { go, period as routePeriod, tab as routeTab } from '../state/route.ts';
+import { emailOf, session, signOut } from '../auth/session.ts';
+import { go, navigate, period as routePeriod, tab as routeTab } from '../state/route.ts';
 import type { TabId } from '../state/route.ts';
 import type { AppState, Period } from '../../domain/types.ts';
 import { ExportDialog } from './components/ExportDialog.tsx';
@@ -78,7 +79,12 @@ export function Topbar() {
           >›</button>
           <button class="quiet" onClick={() => go({ period: currentPeriod() })}>Today</button>
         </div>
-        <button class="primary" onClick={() => setExporting(true)}>Export to Excel</button>
+        <div class="account-menu">
+          <button class="primary" onClick={() => setExporting(true)}>Export to Excel</button>
+          <span class="muted" title="Signed in as">{emailOf(session.value)}</span>
+          <button class="quiet" onClick={() => navigate('/settings/security')}>Security</button>
+          <button class="quiet" onClick={() => void signOut()}>Log out</button>
+        </div>
       </div>
       <nav class="tabs" role="tablist">
         {TABS.map((t) => (

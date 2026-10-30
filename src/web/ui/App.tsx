@@ -1,11 +1,19 @@
-/* ui/App.tsx — the whole page: boot screen, frame, and whichever tab is on. */
+/* ui/App.tsx — the whole page: the session gate, boot, frame, and whichever
+   tab is on.
 
-import { useEffect } from 'preact/hooks';
+   Sign-in screens render on their own. Anything else needs a session: while
+   Kratos is being asked there is a splash, with no session it is the login
+   screen, and with one the state is loaded (once) and the tab is drawn. */
+
+import { useEffect, useRef } from 'preact/hooks';
 import { plural } from '../../domain/money.ts';
+import { AuthScreen } from '../auth/screens.tsx';
+import { emailOf, isVerified, session } from '../auth/session.ts';
 import { app, bootError, booting, reachable } from '../state/app.ts';
-import { tab as routeTab } from '../state/route.ts';
-import type { TabId } from '../state/route.ts';
+import { boot } from '../state/boot.ts';
 import type { BootOutcome } from '../state/boot.ts';
+import { authRoute, navigate, tab as routeTab } from '../state/route.ts';
+import type { TabId } from '../state/route.ts';
 import { Toast, toast } from './components/Toast.tsx';
 import { Topbar } from './Topbar.tsx';
 
@@ -50,45 +58,63 @@ function OfflineNotice() {
     </div>
   );
 }
+function VerifyNotice() {
+  const who = session.value;
+  if (!who || isVerified(who)) return null;
+  return (
+    <div class="notice warn" style="margin-bottom:24px">
+      <strong>Please verify your email. </strong>
+      {`A code was sent to ${emailOf(who)}. `}
+      <a href="/verification" onClick={(e) => { e.preventDefault(); navigate('/verification'); }}>Enter it here</a>.
+    </div>
+  );
+}
 
-export function App({ outcome }: { outcome: Promise<BootOutcome | null> }) {
+export function App() {
+  const auth = authRoute.value;
+  const who = session.value;
   const tabId = routeTab.value;
+  const announced = useRef<Promise<BootOutcome | null> | null>(null);
 
-  /* Announced once the data has loaded, not on every render. A quiet catch-up
-     that moved a balance is alarming when it is not explained. */
+  /* Booted once per sign-in (boot() remembers), and announced once. A quiet
+     catch-up that moved a balance is alarming when it is not explained. */
   useEffect(() => {
+    if (!who || auth) return;
+    const outcome = boot();
+    if (announced.current === outcome) return;
+    announced.current = outcome;
     void outcome.then((result) => {
-      if (!result) return;
-      if (result.added.total) {
-        const parts: string[] = [];
-        if (result.added.income) parts.push(plural(result.added.income, 'income entry', 'income entries'));
-        if (result.added.bills) parts.push(plural(result.added.bills, 'bill'));
-        toast(`Added ${parts.join(' and ')} from your recurring set-up`);
-      }
+      if (!result?.added.total) return;
+      const parts: string[] = [];
+      if (result.added.income) parts.push(plural(result.added.income, 'income entry', 'income entries'));
+      if (result.added.bills) parts.push(plural(result.added.bills, 'bill'));
+      toast(`Added ${parts.join(' and ')} from your recurring set-up`);
     });
-  }, [outcome]);
+  }, [who, auth]);
 
-  /* Moving to another tab starts at the top; re-rendering in place — saving a
-     row, opening a form — leaves the scroll exactly where it was, which is what
-     the diffing gives for free and the old teardown had to rescue by hand. */
+  useEffect(() => {
+    if (who === null && !auth) navigate('/login', { replace: true });
+  }, [who, auth]);
+
   useEffect(() => { window.scrollTo(0, 0); }, [tabId]);
 
+  if (auth) return <AuthScreen route={auth} />;
+  if (who === undefined) return <Splash title="Income Tracker" lines={['Checking your session…']} />;
+  if (who === null) return null;
   if (bootError.value) {
     return <Splash title="Could not start" lines={[bootError.value, 'Reload the page to try again.']} />;
   }
-  if (booting.value) {
-    return <Splash title="Income Tracker" lines={['Loading your data…']} />;
-  }
+  if (booting.value) return <Splash title="Income Tracker" lines={['Loading your data…']} />;
 
   // Read so the frame redraws with the data, not only with the route.
   app.value;
 
   const Tab = TABS[tabId];
-
   return (
     <>
       <Topbar />
       <main>
+        <VerifyNotice />
         <OfflineNotice />
         <Tab key={tabId} />
       </main>

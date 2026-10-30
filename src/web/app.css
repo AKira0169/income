@@ -618,3 +618,19 @@ body.is-busy dialog button[type="submit"] { pointer-events: none; opacity: .6; }
 
 /* Wraps a form's buttons so one `disabled` covers them all; draws nothing. */
 .plain-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+/* ---- sign-in screens: plain, in the app's existing style (phase 2 redesigns) ---- */
+.auth { max-width: 440px; margin: 64px auto; padding: 0 16px; }
+.auth-card { padding: 24px; }
+.auth-card h1 { margin: 0 0 16px; font-size: 1.4rem; }
+.auth-section + .auth-section { margin-top: 24px; }
+.auth-section h2 { font-size: 1.05rem; margin: 0 0 8px; }
+.auth-form { display: grid; gap: 12px; margin-bottom: 8px; }
+.auth-field { display: grid; gap: 4px; }
+.auth-field input { width: 100%; }
+.auth-message { margin: 0; font-size: .9rem; }
+.auth-message.is-error { color: #b91c1c; }
+.auth-message.is-success { color: #15803d; }
+.auth-secret { display: block; font-size: 1rem; word-break: break-all; }
+.auth-codes { columns: 2; margin: 4px 0; padding-left: 1.2em; }
+.auth-links { margin: 16px 0 0; }
+.account-menu { display: flex; gap: 8px; align-items: center; }

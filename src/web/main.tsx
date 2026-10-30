@@ -3,10 +3,10 @@
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import { accountBalance } from '../domain/selectors.ts';
+import { checkSession } from './auth/session.ts';
 import { clearAll, upsert } from './state/actions.ts';
 import { idle, inFlight, refresh } from './state/api.ts';
 import { app, snapshot } from './state/app.ts';
-import { boot } from './state/boot.ts';
 import { goPeriod, goTab, startRouting } from './state/route.ts';
 import type { TabId } from './state/route.ts';
 import { App } from './ui/App.tsx';
@@ -41,7 +41,8 @@ function start(): void {
   if (!host) return;
   // Outside any component, so a request starting or ending redraws nothing.
   effect(() => { document.body.classList.toggle('is-busy', inFlight.value > 0); });
-  render(<App outcome={boot()} />, host);
+  render(<App />, host);
+  void checkSession();
 }
 
 if (document.readyState === 'loading') {
