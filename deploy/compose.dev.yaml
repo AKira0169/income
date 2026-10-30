@@ -11,8 +11,13 @@ services:
       - ../src/domain:/app/src/domain:ro
       - ../src/wire.ts:/app/src/wire.ts:ro
 
+  # No proxy in front locally, so Caddy does its own HTTPS and takes the ports.
   caddy:
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.dev", "--adapter", "caddyfile"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ../dist/web:/srv:ro
 

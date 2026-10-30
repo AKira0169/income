@@ -1,7 +1,11 @@
-# The whole app on one host. Caddy is the only thing listening publicly; it
-# serves the web build and proxies /auth/* to Kratos (prefix stripped) and
-# /api/* to the api, so everything is one origin and the Kratos session cookie
-# is first-party. Kratos's admin port (4434) is never routed.
+# The whole app behind one entrypoint. Caddy serves the web build and proxies
+# /auth/* to Kratos (prefix stripped) and /api/* to the api, so everything is
+# one origin and the Kratos session cookie is first-party. Kratos's admin port
+# (4434) is never routed.
+#
+# In production Caddy speaks plain HTTP on :80 and publishes no ports: the
+# platform's proxy (Dokploy's Traefik) terminates HTTPS and forwards the one
+# domain to caddy:80. See deploy/README.md.
 #
 #   docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 name: income
@@ -95,10 +99,8 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    expose:
+      - "80"
     volumes:
       - caddy_data:/data
       - caddy_config:/config

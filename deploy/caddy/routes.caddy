@@ -16,14 +16,16 @@ header {
 # whatever address is typed. Each IP gets 20 form submissions a minute — far
 # more than a person signing in needs. The api gets a generous per-IP ceiling
 # too, in front of its own per-user one, so a flood of requests with made-up
-# session cookies never reaches Kratos.
+# session cookies never reaches Kratos. {client_ip} is the visitor's address
+# as the proxy in front reports it (trusted_proxies in the Caddyfile), not the
+# proxy's own.
 rate_limit {
 	zone auth_submit {
 		match {
 			method POST
 			path /auth/self-service/*
 		}
-		key {remote_host}
+		key {client_ip}
 		events 20
 		window 1m
 	}
@@ -31,7 +33,7 @@ rate_limit {
 		match {
 			path /api/*
 		}
-		key {remote_host}
+		key {client_ip}
 		events 600
 		window 1m
 	}

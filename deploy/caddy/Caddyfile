@@ -1,13 +1,23 @@
-# Production: automatic HTTPS from Let's Encrypt for $APP_DOMAIN.
+# Production, behind the platform's proxy (Dokploy's Traefik): that proxy
+# holds the certificate and forwards https://$APP_DOMAIN to caddy:80 as plain
+# HTTP, so Caddy neither listens publicly nor asks Let's Encrypt for anything.
 {
 	# rate_limit comes from the caddy-ratelimit plugin (see Dockerfile) and has
 	# no place in Caddy's standard directive order until it is given one.
 	order rate_limit before basic_auth
+	auto_https off
+	servers {
+		# Only the proxy can reach Caddy, over the private Docker network, so
+		# its X-Forwarded-For is believed: {client_ip} is then the visitor,
+		# and the rate limits count per visitor rather than all as one.
+		trusted_proxies static private_ranges
+		client_ip_headers X-Forwarded-For
+	}
 }
 
-{$APP_DOMAIN} {
-	# HTTPS only, from now on. Production only: pinned on localhost it would
-	# outlive the dev stack and break every other local server.
+:80 {
+	# Every visitor arrives over HTTPS at the proxy; tell browsers to keep it so.
+	# Production only: pinned on localhost it would outlive the dev stack.
 	header Strict-Transport-Security "max-age=31536000"
 	import /etc/caddy/routes.caddy
 }
