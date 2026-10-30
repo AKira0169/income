@@ -8,7 +8,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { plural } from '../../domain/money.ts';
 import { AuthScreen } from '../auth/screens.tsx';
-import { emailOf, isVerified, session } from '../auth/session.ts';
+import { session } from '../auth/session.ts';
 import { app, bootError, booting, reachable } from '../state/app.ts';
 import { boot } from '../state/boot.ts';
 import type { BootOutcome } from '../state/boot.ts';
@@ -58,18 +58,6 @@ function OfflineNotice() {
     </div>
   );
 }
-function VerifyNotice() {
-  const who = session.value;
-  if (!who || isVerified(who)) return null;
-  return (
-    <div class="notice warn" style="margin-bottom:24px">
-      <strong>Please verify your email. </strong>
-      {`A code was sent to ${emailOf(who)}. `}
-      <a href="/verification" onClick={(e) => { e.preventDefault(); navigate('/verification'); }}>Enter it here</a>.
-    </div>
-  );
-}
-
 export function App() {
   const auth = authRoute.value;
   const who = session.value;
@@ -114,7 +102,6 @@ export function App() {
     <>
       <Topbar />
       <main>
-        <VerifyNotice />
         <OfflineNotice />
         <Tab key={tabId} />
       </main>

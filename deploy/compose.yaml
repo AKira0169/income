@@ -27,7 +27,6 @@ services:
       KRATOS_DB_PASSWORD: ${KRATOS_DB_PASSWORD}
       KRATOS_COOKIE_SECRET: ${KRATOS_COOKIE_SECRET}
       KRATOS_CIPHER_SECRET: ${KRATOS_CIPHER_SECRET}
-      SMTP_URI: ${SMTP_URI}
     volumes:
       - ./check-env.sh:/check-env.sh:ro
 
@@ -61,7 +60,7 @@ services:
 
   kratos:
     image: oryd/kratos:v1.3.1
-    command: serve -c /etc/config/kratos/kratos.yml --watch-courier
+    command: serve -c /etc/config/kratos/kratos.yml
     restart: unless-stopped
     environment:
       <<: *kratos-env
@@ -73,16 +72,10 @@ services:
       SELFSERVICE_FLOWS_ERROR_UI_URL: https://${APP_DOMAIN}/error
       SELFSERVICE_FLOWS_LOGIN_UI_URL: https://${APP_DOMAIN}/login
       SELFSERVICE_FLOWS_REGISTRATION_UI_URL: https://${APP_DOMAIN}/registration
-      SELFSERVICE_FLOWS_RECOVERY_UI_URL: https://${APP_DOMAIN}/recovery
-      SELFSERVICE_FLOWS_VERIFICATION_UI_URL: https://${APP_DOMAIN}/verification
-      SELFSERVICE_FLOWS_VERIFICATION_AFTER_DEFAULT_BROWSER_RETURN_URL: https://${APP_DOMAIN}/
       SELFSERVICE_FLOWS_SETTINGS_UI_URL: https://${APP_DOMAIN}/settings/security
       SELFSERVICE_FLOWS_LOGOUT_AFTER_DEFAULT_BROWSER_RETURN_URL: https://${APP_DOMAIN}/login
       SECRETS_COOKIE_0: ${KRATOS_COOKIE_SECRET:?set KRATOS_COOKIE_SECRET in deploy/.env}
       SECRETS_CIPHER_0: ${KRATOS_CIPHER_SECRET:?set KRATOS_CIPHER_SECRET (exactly 32 characters) in deploy/.env}
-      COURIER_SMTP_CONNECTION_URI: ${SMTP_URI:?set SMTP_URI in deploy/.env}
-      COURIER_SMTP_FROM_ADDRESS: ${SMTP_FROM:?set SMTP_FROM in deploy/.env}
-      COURIER_SMTP_FROM_NAME: Income Tracker
     volumes:
       - ./kratos:/etc/config/kratos:ro
     depends_on:
@@ -127,13 +120,6 @@ services:
     depends_on:
       - api
       - kratos
-
-  # Catches every email Kratos sends, in development only: --profile dev.
-  mailpit:
-    image: axllent/mailpit:v1.32.0
-    profiles: ["dev"]
-    ports:
-      - "127.0.0.1:8025:8025"
 
 volumes:
   pgdata:

@@ -1,6 +1,6 @@
 # Development overrides: https://localhost with Caddy's own CA, the web build
 # mounted from dist/web (pnpm dev keeps it fresh), and the api restarting on
-# change. Mail goes to Mailpit (http://localhost:8025).
+# change.
 #
 #   pnpm stack:dev      (uses deploy/dev.env and --profile dev)
 services:
@@ -21,12 +21,8 @@ services:
     volumes:
       - ../dist/web:/srv:ro
 
-  # The dev values are short and mail goes to Mailpit, on purpose.
+  # The dev passwords are short, on purpose.
   config-check:
     environment:
       DEV: "1"
 
-  kratos:
-    depends_on:
-      mailpit:
-        condition: service_started

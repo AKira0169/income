@@ -12,9 +12,9 @@ header {
 	-Server
 }
 
-# Kratos does not throttle sign-in, and recovery and verification send mail to
-# whatever address is typed. Each IP gets 20 form submissions a minute — far
-# more than a person signing in needs. The api gets a generous per-IP ceiling
+# Kratos does not throttle sign-in, so password guessing is slowed here: each
+# IP gets 20 form submissions a minute — far more than a person signing in
+# needs. The api gets a generous per-IP ceiling
 # too, in front of its own per-user one, so a flood of requests with made-up
 # session cookies never reaches Kratos. {client_ip} is the visitor's address
 # as the proxy in front reports it (trusted_proxies in the Caddyfile), not the

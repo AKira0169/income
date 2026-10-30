@@ -5,11 +5,11 @@
    the sign-in screens and the session cookie. It signs a fresh person up
    through the UI, runs the offline build's regression checks against the
    server, imports a backup and compares the figures with the domain's own
-   arithmetic, and ends with email verification, recovery, two-factor sign-in
-   and logging out.
+   arithmetic, and ends with changing the password, two-factor sign-in and
+   logging out.
 
    Run:  pnpm stack:dev && pnpm test:browser
-   Set CHROME_PATH to pick a browser, APP_URL / MAILPIT_URL to aim elsewhere. */
+   Set CHROME_PATH to pick a browser, APP_URL to aim elsewhere. */
 import puppeteer from 'puppeteer-core';
 import { execFileSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
@@ -24,7 +24,6 @@ import { fixtureBackup } from './support/fixture.ts';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const BASE = process.env.APP_URL ?? 'https://localhost';
-const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 const COMPOSE = ['compose', '--env-file', 'deploy/dev.env', '-f', 'deploy/compose.yaml'];
 const email = `browser-${Date.now()}@example.test`;
 const firstPassword = `First-${Date.now()}-correct-horse`;
@@ -58,25 +57,6 @@ const check = (label, actual, expected) => {
 /** SQL straight into the dev database — only for the shared gold prices, which no user can write. */
 const psql = (sql) => execFileSync('docker', [...COMPOSE, 'exec', '-T', 'postgres',
   'psql', '-U', 'postgres', '-d', 'app', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: root, stdio: 'pipe' });
-
-/** Ids of every message Mailpit holds, so a new one can be told apart. */
-const mailIds = async () => new Set(((await (await fetch(`${MAILPIT}/api/v1/messages`)).json()).messages ?? [])
-  .map((m) => m.ID));
-
-/** The six-digit code in the first new message to `to`. */
-async function mailedCode(to, seen) {
-  for (let i = 0; i < 60; i++) {
-    const list = (await (await fetch(`${MAILPIT}/api/v1/messages`)).json()).messages ?? [];
-    const hit = list.find((m) => !seen.has(m.ID) && m.To?.some((t) => t.Address === to));
-    if (hit) {
-      const full = await (await fetch(`${MAILPIT}/api/v1/message/${hit.ID}`)).json();
-      const code = /\b(\d{6})\b/.exec(full.Text ?? '')?.[1];
-      if (code) return code;
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`no code was mailed to ${to}`);
-}
 
 /** RFC 6238 TOTP, as an authenticator app computes it. */
 function totp(secret, at = Date.now()) {
@@ -157,8 +137,6 @@ try {
   check('a new account lands in the app', new URL(tab.url()).pathname.startsWith('/dashboard/'), true);
   check('the topbar says who is signed in',
     await tab.evaluate((e) => document.querySelector('.account-menu').textContent.includes(e), email), true);
-  check('and they are asked to verify their email',
-    await tab.evaluate(() => !!document.querySelector('.notice.warn')), true);
 
   /* ---------------- boot ---------------- */
   console.log('\nboot:');
@@ -743,37 +721,18 @@ try {
       [money(s.income), money(s.spent), money(s.net), money(s.savedNet)]);
   }
 
-  /* ---------------- verifying the email address ---------------- */
-  console.log('\nverifying the email address:');
-  let seen = await mailIds();
-  await tab.goto(`${BASE}/verification`, { waitUntil: 'load' });
-  await tab.waitForSelector('input[name="email"]', { timeout: 15000 });
-  await tab.type('input[name="email"]', email);
-  await tab.click('button[name="method"][value="code"]');
-  const verifyCode = await mailedCode(email, seen);
-  await tab.waitForSelector('input[name="code"]', { timeout: 15000 });
-  await tab.type('input[name="code"]', verifyCode);
-  await tab.click('button[name="method"][value="code"]');
-  await tab.waitForSelector('.auth-message.is-success', { timeout: 15000 });
-  await open();
-  check('the verify notice is gone', await tab.evaluate(() => !!document.querySelector('.notice.warn')), false);
-
-  /* ---------------- recovering a forgotten password ---------------- */
-  console.log('\nrecovering a forgotten password:');
+  /* ---------------- changing the password ---------------- */
+  console.log('\nchanging the password:');
   await logOut();
   check('logging out lands on sign-in', new URL(tab.url()).pathname, '/login');
   check('and the api no longer answers', await tab.evaluate(async () => (await fetch('/api/me')).status), 401);
-  seen = await mailIds();
-  await tab.goto(`${BASE}/recovery`, { waitUntil: 'load' });
-  await tab.waitForSelector('input[name="email"]', { timeout: 15000 });
-  await tab.type('input[name="email"]', email);
-  await tab.click('button[name="method"][value="code"]');
-  const recoveryCode = await mailedCode(email, seen);
-  await tab.waitForSelector('input[name="code"]', { timeout: 15000 });
-  await tab.type('input[name="code"]', recoveryCode);
-  await tab.click('button[name="method"][value="code"]');
+  check('there is no email recovery to offer',
+    await tab.evaluate(() => document.body.innerText.includes('Forgot your password')), false);
+  // A fresh sign-in, so the session is recent enough to change a password with.
+  await submitPassword(firstPassword);
+  await tab.waitForSelector('.topbar', { timeout: 30000 });
+  await tab.goto(`${BASE}/settings/security`, { waitUntil: 'load' });
   await tab.waitForSelector('[data-node-id="password"] input', { timeout: 15000 });
-  check('a correct code opens the security screen', new URL(tab.url()).pathname, '/settings/security');
   await tab.type('[data-node-id="password"] input', secondPassword);
   await tab.click('button[name="method"][value="password"]');
   await tab.waitForSelector('.auth-message.is-success', { timeout: 15000 });

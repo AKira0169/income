@@ -11,7 +11,7 @@ inside the stack.
 | --- | --- |
 | `caddy` | The stack's one entrypoint, plain HTTP on port 80, no ports published. Serves the web app, proxies `/auth/*` to Kratos and `/api/*` to the api. Built with the `caddy-ratelimit` plugin: 20 sign-in form submissions a minute per visitor IP (read from Traefik's `X-Forwarded-For`), 600 api requests. Sends HSTS, a strict CSP and no-framing headers. |
 | `api` | Node 26, Hono. Applies database migrations on start, then serves. Fetches the gold price once a day. |
-| `kratos` | Ory Kratos v1.3.1: accounts, passwords, 2FA, email verification and recovery. Its admin API is never exposed. |
+| `kratos` | Ory Kratos v1.3.1: accounts, passwords, 2FA and backup codes. No email is sent, so there is no email verification or self-service recovery. Its admin API is never exposed. |
 | `config-check` | Checks the environment settings before anything else starts, then exits. A failed deploy that stops here names the bad setting in its log. |
 | `kratos-migrate` | Runs Kratos's own migrations once, then exits. |
 | `postgres` | Postgres 17, two databases: `app` and `kratos`. Data in the `pgdata` volume. |
@@ -38,8 +38,7 @@ inside the stack.
    `config-check` service stops the deploy and its log says which and why.
 
    `APP_DOMAIN` is the bare domain (`money.example.com`, no `https://`).
-   `SMTP_URI` / `SMTP_FROM` must be a real mail provider: verification and
-   recovery codes are sent by email. Dokploy writes these to a `.env` beside
+   Dokploy writes these to a `.env` beside
    the compose file and passes it to `docker compose`, which is what fills in
    the `${…}` in `compose.yaml`.
 4. **Domain.** In the **Domains** tab, add one domain:
@@ -83,6 +82,28 @@ Push to `main` and press **Deploy** (or turn on auto-deploy for the
 repository). The api applies new migrations on start. Before a Kratos version
 bump, take a backup, change the tag in `deploy/compose.yaml` for both
 `kratos` and `kratos-migrate`, and read Ory's upgrade notes for that release.
+
+## Resetting a forgotten password
+
+The app sends no email, so a forgotten password is reset here: you set a
+temporary one through Kratos's admin API, which is reachable only from inside
+the stack's own Docker network, and the person changes it under **Security**
+after signing in. On the server (the network is `<Dokploy app name>_default`,
+e.g. `income-prod-wxfkmd_default`):
+
+```bash
+NET=income-prod-wxfkmd_default
+EMAIL=person@example.com
+TEMP=$(openssl rand -hex 12)
+C="docker run --rm --network $NET curlimages/curl:8.11.1 -s"
+ID=$($C "http://kratos:4434/admin/identities?credentials_identifier=$EMAIL" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+$C -X PUT -H 'Content-Type: application/json' \
+  -d "{\"schema_id\":\"default\",\"state\":\"active\",\"traits\":{\"email\":\"$EMAIL\"},\"credentials\":{\"password\":{\"config\":{\"password\":\"$TEMP\"}}}}" \
+  "http://kratos:4434/admin/identities/$ID" > /dev/null && echo "temporary password: $TEMP"
+```
+
+The old password stops working at once. If they had set up two-factor sign-in
+and lost the authenticator too, they also need one of their backup codes.
 
 ## Logs
 

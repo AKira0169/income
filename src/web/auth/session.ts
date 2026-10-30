@@ -15,11 +15,6 @@ export const session = signal<Session | null | undefined>(undefined);
 
 export const emailOf = (s: Session | null | undefined): string => s?.identity.traits.email ?? '';
 
-export const isVerified = (s: Session | null | undefined): boolean => {
-  const email = emailOf(s);
-  return (s?.identity.verifiable_addresses ?? []).some((a) => a.value === email && a.verified);
-};
-
 /* A session that still owes its second factor is sent to give it — but not
    from a sign-in screen, where the redirect would land right back here. */
 export async function checkSession(options: { followRedirect?: boolean } = {}): Promise<Session | null> {

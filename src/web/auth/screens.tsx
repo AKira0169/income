@@ -1,10 +1,9 @@
-/* auth/screens.tsx — sign in, sign up, recover, verify, security.
+/* auth/screens.tsx — sign in, sign up, security.
 
    Each is a thin wrapper around FlowForm: start (or resume, from ?flow=) the
    right Kratos flow, draw it, and decide what "done" means. The flow id is
    written into the address so a reload resumes the same flow rather than
-   throwing away what Kratos already knows (a code just sent, a TOTP secret just
-   shown). Visually these borrow the app's existing sheets; the redesign is
+   throwing away what Kratos already knows (a TOTP secret just shown). Visually these borrow the app's existing sheets; the redesign is
    phase 2. */
 
 import { useEffect, useState } from 'preact/hooks';
@@ -99,7 +98,7 @@ export function Login() {
   return (
     <AuthShell
       title={second ? 'Enter your authentication code' : 'Sign in'}
-      links={<><Link to="/registration">Create an account</Link> · <Link to="/recovery">Forgot your password?</Link></>}
+      links={<><Link to="/registration">Create an account</Link></>}
     >
       <Problem text={problem} />
       {flow ? <FlowForm flow={flow} onOutcome={(o) => handle(o, () => void enterApp(returnTo))} /> : <Loading />}
@@ -113,30 +112,6 @@ export function Registration() {
     <AuthShell title="Create your account" links={<>Already have one? <Link to="/login">Sign in</Link></>}>
       <Problem text={problem} />
       {flow ? <FlowForm flow={flow} onOutcome={(o) => handle(o, () => void enterApp(''))} /> : <Loading />}
-    </AuthShell>
-  );
-}
-
-/* A correct recovery code answers with a redirect to the security screen,
-   signed in, to choose a new password — FlowForm's redirect handling covers it. */
-export function Recovery() {
-  const { flow, problem, handle } = useFlow('recovery');
-  return (
-    <AuthShell title="Recover your account" links={<Link to="/login">Back to sign in</Link>}>
-      <Problem text={problem} />
-      {flow ? <FlowForm flow={flow} onOutcome={(o) => handle(o, () => go({}))} /> : <Loading />}
-    </AuthShell>
-  );
-}
-
-export function Verification() {
-  const { flow, problem, handle } = useFlow('verification');
-  const passed = flow?.state === 'passed_challenge';
-  useEffect(() => { if (passed) void checkSession({ followRedirect: false }); }, [passed]);
-  return (
-    <AuthShell title="Verify your email" links={<Link to="/">Back to the app</Link>}>
-      <Problem text={problem} />
-      {flow ? <FlowForm flow={flow} onOutcome={(o) => handle(o, () => go({}))} /> : <Loading />}
     </AuthShell>
   );
 }
@@ -180,8 +155,6 @@ export function AuthScreen({ route }: { route: AuthRoute }) {
   switch (route) {
     case 'login': return <Login key={key} />;
     case 'registration': return <Registration key={key} />;
-    case 'recovery': return <Recovery key={key} />;
-    case 'verification': return <Verification key={key} />;
     case 'settings/security': return <SecuritySettings key={key} />;
     case 'error': return <AuthError key={key} />;
   }

@@ -27,10 +27,9 @@ selfservice:
         issuer: Income Tracker
     lookup_secret:
       enabled: true
+    # No email in this deployment, so nothing that sends a code by mail.
     code:
-      enabled: true
-      passwordless_enabled: false
-      mfa_enabled: false
+      enabled: false
     link:
       enabled: false
 
@@ -50,16 +49,12 @@ selfservice:
         password:
           hooks:
             - hook: session
+    # Both work by emailing a code, and this deployment sends no email. A
+    # forgotten password is reset by the operator instead: deploy/README.md.
     verification:
-      enabled: true
-      use: code
-      ui_url: https://localhost/verification
-      after:
-        default_browser_return_url: https://localhost/
+      enabled: false
     recovery:
-      enabled: true
-      use: code
-      ui_url: https://localhost/recovery
+      enabled: false
     settings:
       ui_url: https://localhost/settings/security
       privileged_session_max_age: 15m
@@ -96,9 +91,11 @@ identity:
     - id: default
       url: file:///etc/config/kratos/identity.schema.json
 
+# Never used: every flow that would send mail is off, and the courier is not
+# started (no --watch-courier). Kratos still insists on a well-formed value.
 courier:
   smtp:
-    connection_uri: smtp://mailpit:1025/?disable_starttls=true
+    connection_uri: smtp://localhost:25/
     from_address: no-reply@localhost
 
 log:

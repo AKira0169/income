@@ -11,10 +11,10 @@ The offline single-file version is retired. It is still available from the
 ## Using it
 
 Open the site, create an account with your email and a password, and you are
-in. A code is emailed to verify the address. Under **Security** (top right)
-you can change your password, add an authenticator app for two-factor sign-in,
-and get backup codes. **Forgot your password?** on the sign-in screen emails a
-recovery code.
+in. Under **Security** (top right) you can change your password, add an
+authenticator app for two-factor sign-in, and get backup codes. The app sends
+no email, so there is no "forgot your password" link: whoever runs the server
+resets a forgotten password (see [deploy/README.md](deploy/README.md)).
 
 It starts in Egyptian pounds (`E£` / `EGP`). Change that, and the number
 format, under **Settings → Currency & goals**.
@@ -273,7 +273,7 @@ pnpm test          # typecheck + the Node suites (no database needed)
 pnpm db:test:up    # a throwaway Postgres on 127.0.0.1:55439
 pnpm test:db       # schema, repository, api and gold-price suites against it
 pnpm build         # dist/web
-pnpm stack:dev     # the whole stack at https://localhost, mail at http://localhost:8025
+pnpm stack:dev     # the whole stack at https://localhost
 pnpm dev           # rebuild dist/web on change (the dev stack serves it)
 pnpm test:browser  # the browser suite against the dev stack
 pnpm test:full     # all of the above

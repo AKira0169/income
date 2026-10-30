@@ -13,7 +13,7 @@
 
 export const KRATOS = '/auth';
 
-export type FlowKind = 'login' | 'registration' | 'recovery' | 'verification' | 'settings';
+export type FlowKind = 'login' | 'registration' | 'settings';
 
 export interface UiText {
   id: number;

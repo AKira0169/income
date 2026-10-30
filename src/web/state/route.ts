@@ -18,10 +18,10 @@ export const TAB_IDS: readonly TabId[] = [
   'dashboard', 'income', 'bills', 'purchases', 'savings', 'goals', 'gold', 'settings'
 ];
 
-export type AuthRoute = 'login' | 'registration' | 'recovery' | 'verification' | 'settings/security' | 'error';
+export type AuthRoute = 'login' | 'registration' | 'settings/security' | 'error';
 
 const AUTH_ROUTES: readonly AuthRoute[] = [
-  'login', 'registration', 'recovery', 'verification', 'settings/security', 'error'
+  'login', 'registration', 'settings/security', 'error'
 ];
 
 const isTab = (value: string): value is TabId => (TAB_IDS as readonly string[]).includes(value);

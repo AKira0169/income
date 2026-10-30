@@ -25,11 +25,5 @@ fi
 case "$APP_DOMAIN" in
   "" | *://* | */*) bad "APP_DOMAIN must be the bare host name, like money.example.com" ;;
 esac
-if [ "$DEV" != 1 ]; then
-  case "$SMTP_URI" in
-    *mailpit*) bad "SMTP_URI points at mailpit, which only exists in development: use your mail provider" ;;
-  esac
-fi
-
 if [ $fail -eq 0 ]; then echo "deploy/.env looks right"; fi
 exit $fail
